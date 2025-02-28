@@ -46,13 +46,33 @@ let initialPaymentState : PaymentState = {
 }
 
 type PaymentEvent =
-    | PaymentFileReceived of PaymentFile
-    | PaymentFileValidated of Guid * bool
-    | BankChannelAssigned of Guid * BankChannel
-    | FraudCheckCompleted of Guid * FraudCheckResult
-    | PaymentOptimized of Guid * OptimizationResult
-    | OptimizedPaymentFileCreated of Guid * PaymentFile
+    | PaymentFileReceived of PaymentFile * DateTime
+    | PaymentFileValidated of Guid * bool * DateTime
+    | BankChannelAssigned of Guid * BankChannel * DateTime
+    | FraudCheckCompleted of Guid * FraudCheckResult * DateTime
+    | PaymentOptimized of Guid * OptimizationResult * DateTime
+    | OptimizedPaymentFileCreated of Guid * PaymentFile * DateTime
     | PaymentFileSubmittedToBank of Guid * DateTime
+
+let getEventTimestamp (event: PaymentEvent) =
+    match event with
+    | PaymentFileReceived (_, timestamp) -> timestamp
+    | PaymentFileValidated (_, _, timestamp) -> timestamp
+    | BankChannelAssigned (_, _, timestamp) -> timestamp
+    | FraudCheckCompleted (_, _, timestamp) -> timestamp
+    | PaymentOptimized (_, _, timestamp) -> timestamp
+    | OptimizedPaymentFileCreated (_, _, timestamp) -> timestamp
+    | PaymentFileSubmittedToBank (_, timestamp) -> timestamp
+
+let getEventDescription (event: PaymentEvent) =
+    match event with
+    | PaymentFileReceived _ -> "Payment file -> imported"
+    | PaymentFileValidated (_, isValid, _) -> sprintf "Payment file -> validated: %b" isValid
+    | BankChannelAssigned (_, channel, _) -> sprintf "Payment file -> bank channel assigned: %A" channel
+    | FraudCheckCompleted (_, result, _) -> sprintf "Payment file -> Fraud check completed: %A" result
+    | PaymentOptimized (_, result, _) -> sprintf "Payment file -> optimized: %s" result.Details
+    | OptimizedPaymentFileCreated _ -> "Payment file -> Optimized payment file created"
+    | PaymentFileSubmittedToBank _ -> "Payment file -> Optimized payment file submitted to bank"
 
 let runSimulation () : PaymentState * PaymentEvent list =
 
@@ -73,24 +93,24 @@ let runSimulation () : PaymentState * PaymentEvent list =
     }
 
     let events = [
-        PaymentFileReceived paymentFile
-        PaymentFileValidated (paymentFile.Id, true)
-        BankChannelAssigned (paymentFile.Id, SWIFT)
-        FraudCheckCompleted (paymentFile.Id, Passed)
-        PaymentOptimized (paymentFile.Id, { Optimized = true; Details = "Payment optimized successfully." })
-        OptimizedPaymentFileCreated (paymentFile.Id, paymentFileOptimized)
-        PaymentFileSubmittedToBank (paymentFileOptimized.Id, DateTime.UtcNow.AddSeconds(5.0))
+        PaymentFileReceived (paymentFile, DateTime.UtcNow)
+        PaymentFileValidated (paymentFile.Id, true, DateTime.UtcNow.AddSeconds(1.0))
+        BankChannelAssigned (paymentFile.Id, SWIFT, DateTime.UtcNow.AddSeconds(2.0))
+        FraudCheckCompleted (paymentFile.Id, Passed, DateTime.UtcNow.AddSeconds(3.0))
+        PaymentOptimized (paymentFile.Id, { Optimized = true; Details = "Payment optimized successfully." }, DateTime.UtcNow.AddSeconds(19.0))
+        OptimizedPaymentFileCreated (paymentFile.Id, paymentFileOptimized, DateTime.UtcNow.AddSeconds(19.5))
+        PaymentFileSubmittedToBank (paymentFileOptimized.Id, DateTime.UtcNow.AddSeconds(25.0))
     ]
     let finalState =
         events
         |> List.fold (fun state evt ->
             match evt with
-            | PaymentFileReceived p -> { state with PaymentFile = Some p }
-            | PaymentFileValidated (_, isValid) -> { state with IsValid = Some isValid }
-            | BankChannelAssigned (_, channel) -> { state with BankChannel = Some channel }
-            | FraudCheckCompleted (_, result) -> { state with FraudResult = Some result }
-            | PaymentOptimized (_, result) -> { state with OptimizationResult = Some result }
-            | OptimizedPaymentFileCreated (_, newFile) -> { state with OptimizedPaymentFile = Some newFile }
+            | PaymentFileReceived (p, _) -> { state with PaymentFile = Some p }
+            | PaymentFileValidated (_, isValid, _) -> { state with IsValid = Some isValid }
+            | BankChannelAssigned (_, channel, _) -> { state with BankChannel = Some channel }
+            | FraudCheckCompleted (_, result, _) -> { state with FraudResult = Some result }
+            | PaymentOptimized (_, result, _) -> { state with OptimizationResult = Some result }
+            | OptimizedPaymentFileCreated (_, newFile, _) -> { state with OptimizedPaymentFile = Some newFile }
             | PaymentFileSubmittedToBank (_, submittedAt) -> { state with OptimizedPaymentFileSubmittedAt = Some submittedAt }
         ) initialPaymentState
     finalState, events
@@ -141,44 +161,35 @@ let view (model: Model) (dispatch: Msg -> unit) =
                         prop.className "text-center text-6xl font-bold text-white mb-3 rounded-md p-4"
                         prop.text "Payment File Tracker Event Sourced"
                     ]
-                    // Payment Simulation Section with more horizontal space
+                    Html.button [
+                        prop.className "bg-teal-300 hover:bg-teal-400 text-white font-bold py-2 px-4 rounded"
+                        prop.text "Run Payment Simulation"
+                        prop.onClick (fun _ -> dispatch RunPaymentSimulation)
+                    ]
                     Html.div [
-                        // Updated classes for increased width and max width
-                        prop.className "bg-white/80 rounded-md shadow-md p-4 w-full lg:w-full lg:max-w-4xl mt-4"
-
+                        prop.className "w-full lg:w-full lg:max-w-4xl mt-4"
                         prop.children [
-                            Html.h2 [ prop.className "text-xl font-bold"; prop.text "Payment File Simulation" ]
-                            Html.button [
-                                prop.className "flex-no-shrink p-2 px-12 rounded bg-teal-600 outline-none focus:ring-2 ring-teal-300 font-bold text-white hover:bg-teal disabled:opacity-30 disabled:cursor-not-allowed"
-                                prop.onClick (fun _ -> dispatch RunPaymentSimulation)
-                                prop.text "Run Simulation"
+                            Html.h2 [
+                                prop.text "Event Timeline"
                             ]
-                            match model.PaymentSim with
-                            | Some sim ->
-                                Html.div [
-                                    Html.h3 [ prop.text "Final Payment State:" ]
-                                    Html.pre [ prop.text (sprintf "%A" sim) ]
-                                ]
-                            | None ->
-                                Html.div [ prop.text "No simulation run yet." ]
                             Html.div [
-                                Html.h3 [ prop.text "Events:" ]
-                                Html.ul [
-                                    for evt in model.PaymentEvents do
-                                        let evtStr =
-                                            match evt with
-                                            | PaymentFileReceived p -> sprintf "Payment file received: %A" p.Id
-                                            | PaymentFileValidated (id, valid) -> sprintf "Payment file validated: %A - Valid: %b" id valid
-                                            | BankChannelAssigned (id, channel) -> sprintf "Bank channel assigned: %A - Channel: %A" id channel
-                                            | FraudCheckCompleted (id, result) ->
-                                                match result with
-                                                | Passed -> sprintf "Fraud check completed: %A - Passed" id
-                                                | Failed msg -> sprintf "Fraud check completed: %A - Failed: %s" id msg
-                                            | PaymentOptimized (id, opt) -> sprintf "Payment file optimization completed: %A - OK: %b, Details: %s" id opt.Optimized opt.Details
-                                            | OptimizedPaymentFileCreated (id, newFile) -> sprintf "Optimized payment File Created: %A - New File ID: %A" id newFile.Id
-                                            | PaymentFileSubmittedToBank (id, submittedAt) -> sprintf "payment file submitted to bank: %A - Submitted At: %A" id submittedAt
-                                        Html.li [ prop.text evtStr ]
-                                ]
+                                prop.className "flex flex-col"
+                                prop.children (
+                                    model.PaymentEvents
+                                    |> List.map (fun event ->
+                                        Html.div [
+                                            prop.className "flex items-center mb-4"
+                                            prop.children [
+                                                Html.span [
+                                                    prop.className "w-4 h-4 bg-gray-400 rounded-full mr-4"
+                                                ]
+                                                Html.span [
+                                                    prop.text (sprintf "%s: %s" ((getEventTimestamp event).ToString()) (getEventDescription event))
+                                                ]
+                                            ]
+                                        ]
+                                    )
+                                )
                             ]
                         ]
                     ]
