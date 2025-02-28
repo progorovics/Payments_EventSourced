@@ -66,13 +66,13 @@ let getEventTimestamp (event: PaymentEvent) =
 
 let getEventDescription (event: PaymentEvent) =
     match event with
-    | PaymentFileReceived _ -> "Payment file -> imported"
-    | PaymentFileValidated (_, isValid, _) -> sprintf "Payment file -> validated: %b" isValid
-    | BankChannelAssigned (_, channel, _) -> sprintf "Payment file -> bank channel assigned: %A" channel
-    | FraudCheckCompleted (_, result, _) -> sprintf "Payment file -> Fraud check completed: %A" result
-    | PaymentOptimized (_, result, _) -> sprintf "Payment file -> optimized: %s" result.Details
-    | OptimizedPaymentFileCreated _ -> "Payment file -> Optimized payment file created"
-    | PaymentFileSubmittedToBank _ -> "Payment file -> Optimized payment file submitted to bank"
+        | PaymentFileReceived (file, _) -> sprintf "Payment file %A -> imported" file.Id
+        | PaymentFileValidated (id, isValid, _) -> sprintf "Payment file %A -> validated: %b" id isValid
+        | BankChannelAssigned (id, channel, _) -> sprintf "Payment file %A -> bank channel assigned: %A" id channel
+        | FraudCheckCompleted (id, result, _) -> sprintf "Payment file %A -> Fraud check completed: %A" id result
+        | PaymentOptimized (id, result, _) -> sprintf "Payment file %A -> optimization completed: %s" id result.Details
+        | OptimizedPaymentFileCreated (id, paymentFileOptimized, _) -> sprintf "Payment file %A -> Optimized payment file created (id: %A)" id paymentFileOptimized.Id
+        | PaymentFileSubmittedToBank (id, _) -> sprintf "Payment file %A -> Optimized payment file submitted to bank" id
 
 let runSimulation () : PaymentState * PaymentEvent list =
 
@@ -144,8 +144,9 @@ let view (model: Model) (dispatch: Msg -> unit) =
     Html.section [
         prop.className "h-screen w-screen"
         prop.style [
+            style.backgroundColor "#001F3F" // Dark blue background
             style.backgroundSize "cover"
-            style.backgroundImageUrl "https://unsplash.it/1200/900?random"
+            // style.backgroundImageUrl "https://unsplash.it/1200/900?random"
             style.backgroundPosition "no-repeat center center fixed"
         ]
         prop.children [
@@ -159,10 +160,13 @@ let view (model: Model) (dispatch: Msg -> unit) =
                 prop.children [
                     Html.h1 [
                         prop.className "text-center text-6xl font-bold text-white mb-3 rounded-md p-4"
-                        prop.text "Payment File Tracker Event Sourced"
-                    ]
+                        prop.children [
+                            Html.text "Payment File Tracker"
+                            Html.br []
+                            Html.text "Event Sourced"
+                        ]              ]
                     Html.button [
-                        prop.className "bg-teal-300 hover:bg-teal-400 text-white font-bold py-2 px-4 rounded"
+                        prop.className "bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
                         prop.text "Run Payment Simulation"
                         prop.onClick (fun _ -> dispatch RunPaymentSimulation)
                     ]
@@ -170,10 +174,11 @@ let view (model: Model) (dispatch: Msg -> unit) =
                         prop.className "w-full lg:w-full lg:max-w-4xl mt-4"
                         prop.children [
                             Html.h2 [
+                                prop.className "text-white"
                                 prop.text "Event Timeline"
                             ]
                             Html.div [
-                                prop.className "flex flex-col"
+                                prop.className "flex flex-col text-white"
                                 prop.children (
                                     model.PaymentEvents
                                     |> List.map (fun event ->
@@ -184,7 +189,7 @@ let view (model: Model) (dispatch: Msg -> unit) =
                                                     prop.className "w-4 h-4 bg-gray-400 rounded-full mr-4"
                                                 ]
                                                 Html.span [
-                                                    prop.text (sprintf "%s: %s" ((getEventTimestamp event).ToString()) (getEventDescription event))
+                                                    prop.text (sprintf "%s: %s" ((getEventTimestamp event).ToString("dd MMM yyyy HH:mm:ss")) (getEventDescription event))
                                                 ]
                                             ]
                                         ]
