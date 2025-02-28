@@ -2,6 +2,18 @@
 
 This template can be used to generate a full-stack web application using the [SAFE Stack](https://safe-stack.github.io/). It was created using the dotnet [SAFE Template](https://safe-stack.github.io/docs/template-overview/). If you want to learn more about the template why not start with the [quick start](https://safe-stack.github.io/docs/quickstart/) guide?
 
+This simulation initially creates a payment file and processes it in different workflow steps like
+-format categorization
+-validation
+-bank channel auto-assignment
+-fraud check
+-optimization
+
+At the end of the simulation the payment file status and events gets printed to the UI
+
+
+
+
 ## Install pre-requisites
 
 You'll need to install the following pre-requisites in order to build SAFE applications

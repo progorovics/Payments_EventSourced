@@ -30,8 +30,9 @@ type PaymentState = {
     IsValid: bool option
     BankChannel: BankChannel option
     FraudResult: FraudCheckResult option
-    Optimization: OptimizationResult option
+    OptimizationResult: OptimizationResult option
     OptimizedPaymentFile: PaymentFile option
+    OptimizedPaymentFileSubmittedAt: DateTime option
 }
 
 let initialPaymentState : PaymentState = {
@@ -39,44 +40,58 @@ let initialPaymentState : PaymentState = {
     IsValid = None
     BankChannel = None
     FraudResult = None
-    Optimization = None
+    OptimizationResult = None
     OptimizedPaymentFile = None
+    OptimizedPaymentFileSubmittedAt = None
 }
 
 type PaymentEvent =
-    | PaymentFileSubmitted of PaymentFile
+    | PaymentFileReceived of PaymentFile
     | PaymentFileValidated of Guid * bool
     | BankChannelAssigned of Guid * BankChannel
     | FraudCheckCompleted of Guid * FraudCheckResult
     | PaymentOptimized of Guid * OptimizationResult
     | OptimizedPaymentFileCreated of Guid * PaymentFile
+    | PaymentFileSubmittedToBank of Guid * DateTime
 
 let runSimulation () : PaymentState * PaymentEvent list =
+
+    let CustomerId = Guid.NewGuid()
     // Create a sample payment file in PAIN.001 format.
     let paymentFile = {
         Id = Guid.NewGuid()
         Content = "<PAIN.001>...</PAIN.001>"
-        CustomerId = Guid.NewGuid()
+        CustomerId = CustomerId
         ReceivedAt = DateTime.UtcNow
     }
+    // Create a sample payment file in PAIN.001 format.
+    let paymentFileOptimized = {
+        Id = Guid.NewGuid()
+        Content = "<PAIN.001>...</PAIN.001>"
+        CustomerId = CustomerId
+        ReceivedAt = DateTime.UtcNow
+    }
+
     let events = [
-        PaymentFileSubmitted paymentFile
+        PaymentFileReceived paymentFile
         PaymentFileValidated (paymentFile.Id, true)
         BankChannelAssigned (paymentFile.Id, SWIFT)
         FraudCheckCompleted (paymentFile.Id, Passed)
         PaymentOptimized (paymentFile.Id, { Optimized = true; Details = "Payment optimized successfully." })
-        OptimizedPaymentFileCreated (paymentFile.Id, { paymentFile with Id = Guid.NewGuid(); Content = paymentFile.Content + " [Optimized]" })
+        OptimizedPaymentFileCreated (paymentFile.Id, paymentFileOptimized)
+        PaymentFileSubmittedToBank (paymentFileOptimized.Id, DateTime.UtcNow.AddSeconds(5.0))
     ]
     let finalState =
         events
         |> List.fold (fun state evt ->
             match evt with
-            | PaymentFileSubmitted p -> { state with PaymentFile = Some p }
+            | PaymentFileReceived p -> { state with PaymentFile = Some p }
             | PaymentFileValidated (_, isValid) -> { state with IsValid = Some isValid }
             | BankChannelAssigned (_, channel) -> { state with BankChannel = Some channel }
             | FraudCheckCompleted (_, result) -> { state with FraudResult = Some result }
-            | PaymentOptimized (_, opt) -> { state with Optimization = Some opt }
+            | PaymentOptimized (_, result) -> { state with OptimizationResult = Some result }
             | OptimizedPaymentFileCreated (_, newFile) -> { state with OptimizedPaymentFile = Some newFile }
+            | PaymentFileSubmittedToBank (_, submittedAt) -> { state with OptimizedPaymentFileSubmittedAt = Some submittedAt }
         ) initialPaymentState
     finalState, events
 
@@ -123,15 +138,16 @@ let view (model: Model) (dispatch: Msg -> unit) =
                 prop.className "flex flex-col items-center justify-center h-full gap-6"
                 prop.children [
                     Html.h1 [
-                        prop.className "text-center text-5xl font-bold text-white mb-3 rounded-md p-4"
-                        prop.text "Payments_EventSourced"
+                        prop.className "text-center text-6xl font-bold text-white mb-3 rounded-md p-4"
+                        prop.text "Payment File Tracker Event Sourced"
                     ]
                     // Payment Simulation Section with more horizontal space
                     Html.div [
                         // Updated classes for increased width and max width
                         prop.className "bg-white/80 rounded-md shadow-md p-4 w-full lg:w-full lg:max-w-4xl mt-4"
+
                         prop.children [
-                            Html.h2 [ prop.className "text-xl font-bold"; prop.text "Payment Simulation" ]
+                            Html.h2 [ prop.className "text-xl font-bold"; prop.text "Payment File Processor Simulation" ]
                             Html.button [
                                 prop.className "flex-no-shrink p-2 px-12 rounded bg-teal-600 outline-none focus:ring-2 ring-teal-300 font-bold text-white hover:bg-teal disabled:opacity-30 disabled:cursor-not-allowed"
                                 prop.onClick (fun _ -> dispatch RunPaymentSimulation)
@@ -151,15 +167,16 @@ let view (model: Model) (dispatch: Msg -> unit) =
                                     for evt in model.PaymentEvents do
                                         let evtStr =
                                             match evt with
-                                            | PaymentFileSubmitted p -> sprintf "PaymentFileSubmitted: %A" p.Id
-                                            | PaymentFileValidated (id, valid) -> sprintf "PaymentFileValidated: %A - Valid: %b" id valid
-                                            | BankChannelAssigned (id, channel) -> sprintf "BankChannelAssigned: %A - Channel: %A" id channel
+                                            | PaymentFileReceived p -> sprintf "Payment file received: %A" p.Id
+                                            | PaymentFileValidated (id, valid) -> sprintf "Payment file validated: %A - Valid: %b" id valid
+                                            | BankChannelAssigned (id, channel) -> sprintf "Bank channel assigned: %A - Channel: %A" id channel
                                             | FraudCheckCompleted (id, result) ->
                                                 match result with
-                                                | Passed -> sprintf "FraudCheckCompleted: %A - Passed" id
-                                                | Failed msg -> sprintf "FraudCheckCompleted: %A - Failed: %s" id msg
-                                            | PaymentOptimized (id, opt) -> sprintf "PaymentOptimized: %A - Optimized: %b, Details: %s" id opt.Optimized opt.Details
-                                            | OptimizedPaymentFileCreated (id, newFile) -> sprintf "OptimizedPaymentFileCreated: %A - New File ID: %A" id newFile.Id
+                                                | Passed -> sprintf "Fraud check completed: %A - Passed" id
+                                                | Failed msg -> sprintf "Fraud check completed: %A - Failed: %s" id msg
+                                            | PaymentOptimized (id, opt) -> sprintf "Payment file optimization completed: %A - OK: %b, Details: %s" id opt.Optimized opt.Details
+                                            | OptimizedPaymentFileCreated (id, newFile) -> sprintf "Optimized payment File Created: %A - New File ID: %A" id newFile.Id
+                                            | PaymentFileSubmittedToBank (id, submittedAt) -> sprintf "payment file submitted to bank: %A - Submitted At: %A" id submittedAt
                                         Html.li [ prop.text evtStr ]
                                 ]
                             ]
