@@ -147,7 +147,7 @@ let view (model: Model) (dispatch: Msg -> unit) =
                         prop.className "bg-white/80 rounded-md shadow-md p-4 w-full lg:w-full lg:max-w-4xl mt-4"
 
                         prop.children [
-                            Html.h2 [ prop.className "text-xl font-bold"; prop.text "Payment File Processor Simulation" ]
+                            Html.h2 [ prop.className "text-xl font-bold"; prop.text "Payment File Simulation" ]
                             Html.button [
                                 prop.className "flex-no-shrink p-2 px-12 rounded bg-teal-600 outline-none focus:ring-2 ring-teal-300 font-bold text-white hover:bg-teal disabled:opacity-30 disabled:cursor-not-allowed"
                                 prop.onClick (fun _ -> dispatch RunPaymentSimulation)
