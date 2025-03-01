@@ -202,13 +202,42 @@ let getEventTimestamp (event: PaymentEvent) =
 
 let getEventDescription (event: PaymentEvent) =
     match event with
-    | PaymentFileReceived (metaData, _) ->  "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + "Payment file imported"
-    | PaymentFileValidated(metaData, isValid) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file validated: %b" isValid
-    | BankChannelAssigned(metaData, channel) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file bank channel assigned: %A" channel
-    | FraudCheckCompleted(metaData, result) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file fraud check completed: %A" result
-    | PaymentOptimized(metaData, result) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file optimized: %s" result.Details
-    | OptimizedPaymentFileCreated (metaData, newFile) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + "Payment file optimized payment file created: " + newFile.Id.ToString()
-    | PaymentFileSubmittedToBank metaData -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + "Payment file optimized payment file submitted to bank"
+    | PaymentFileReceived(metaData, _) ->
+        "CorrelationId: "
+        + metaData.CorrelationId.Value.ToString()
+        + " ==> "
+        + "Payment file imported"
+    | PaymentFileValidated(metaData, isValid) ->
+        "CorrelationId: "
+        + metaData.CorrelationId.Value.ToString()
+        + " ==> "
+        + sprintf "Payment file validated: %b" isValid
+    | BankChannelAssigned(metaData, channel) ->
+        "CorrelationId: "
+        + metaData.CorrelationId.Value.ToString()
+        + " ==> "
+        + sprintf "Payment file bank channel assigned: %A" channel
+    | FraudCheckCompleted(metaData, result) ->
+        "CorrelationId: "
+        + metaData.CorrelationId.Value.ToString()
+        + " ==> "
+        + sprintf "Payment file fraud check completed: %A" result
+    | PaymentOptimized(metaData, result) ->
+        "CorrelationId: "
+        + metaData.CorrelationId.Value.ToString()
+        + " ==> "
+        + sprintf "Payment file optimized: %s" result.Details
+    | OptimizedPaymentFileCreated(metaData, newFile) ->
+        "CorrelationId: "
+        + metaData.CorrelationId.Value.ToString()
+        + " ==> "
+        + "Payment file optimized payment file created: "
+        + newFile.Id.ToString()
+    | PaymentFileSubmittedToBank metaData ->
+        "CorrelationId: "
+        + metaData.CorrelationId.Value.ToString()
+        + " ==> "
+        + "Payment file optimized payment file submitted to bank"
 
 // Model, Messages, Init, and Update
 
@@ -217,14 +246,16 @@ type Model = {
     PaymentEvents: PaymentEvent list
 }
 
-type Msg = UploadPaymentFile of string
-
 let init () =
     {
         PaymentSim = None
         PaymentEvents = []
     },
     Cmd.none
+
+type Msg =
+    | UploadPaymentFile of string
+    | Reset
 
 let update msg model =
     match msg with
@@ -237,6 +268,8 @@ let update msg model =
                 PaymentEvents = events
         },
         Cmd.none
+    | Reset ->
+        init ()
 
 // View: UI
 
@@ -249,18 +282,27 @@ let view (model: Model) (dispatch: Msg -> unit) =
                 let input = e.target :?> Browser.Types.HTMLInputElement
                 let files = input.files
 
+                //reset the model
+                dispatch Reset
+
                 if not (isNull files) && files.length > 0 then
                     let file = files.item (0) // Use .item(0) instead of indexing
 
                     if not (isNull file) then
-                        let reader = Browser.Dom.FileReader.Create()
+                        let allowedTypes = [ "text/plain"; "application/json"; "text/xml" ]
 
-                        reader.onload <-
-                            fun (_: Browser.Types.Event) ->
-                                let content = reader.result |> string
-                                dispatch (UploadPaymentFile content)
+                        if List.contains file.``type`` allowedTypes then
+                            let reader = Browser.Dom.FileReader.Create()
 
-                        reader.readAsText (file))
+                            reader.onload <-
+                                fun (_: Browser.Types.Event) ->
+                                    let content = reader.result |> string
+                                    dispatch (UploadPaymentFile content)
+
+                            reader.readAsText (file)
+                        else
+                            //print the file type that causes the error
+                            Browser.Dom.window.alert ("Unsupported file type " + file.``type`` + ". Please upload a plain text, JSON, or XML file."))
         ]
 
         Html.h2 [ prop.text "Event Timeline" ]
