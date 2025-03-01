@@ -4,9 +4,7 @@ open Elmish
 open Feliz
 open System
 
-// -----------------------------------------------------
-// Payment Simulation Domain Types & Simulation Function
-// -----------------------------------------------------
+// Payment Simulation Domain Types
 
 type PaymentFile = {
     Id: Guid
@@ -54,41 +52,18 @@ type PaymentEvent =
     | OptimizedPaymentFileCreated of Guid * PaymentFile * DateTime
     | PaymentFileSubmittedToBank of Guid * DateTime
 
-let getEventTimestamp (event: PaymentEvent) =
-    match event with
-    | PaymentFileReceived (_, timestamp) -> timestamp
-    | PaymentFileValidated (_, _, timestamp) -> timestamp
-    | BankChannelAssigned (_, _, timestamp) -> timestamp
-    | FraudCheckCompleted (_, _, timestamp) -> timestamp
-    | PaymentOptimized (_, _, timestamp) -> timestamp
-    | OptimizedPaymentFileCreated (_, _, timestamp) -> timestamp
-    | PaymentFileSubmittedToBank (_, timestamp) -> timestamp
-
-let getEventDescription (event: PaymentEvent) =
-    match event with
-        | PaymentFileReceived (file, _) -> sprintf "Payment file %A -> imported" file.Id
-        | PaymentFileValidated (id, isValid, _) -> sprintf "Payment file %A -> validated: %b" id isValid
-        | BankChannelAssigned (id, channel, _) -> sprintf "Payment file %A -> bank channel assigned: %A" id channel
-        | FraudCheckCompleted (id, result, _) -> sprintf "Payment file %A -> Fraud check completed: %A" id result
-        | PaymentOptimized (id, result, _) -> sprintf "Payment file %A -> optimization completed: %s" id result.Details
-        | OptimizedPaymentFileCreated (id, paymentFileOptimized, _) -> sprintf "Payment file %A -> Optimized payment file created (id: %A)" id paymentFileOptimized.Id
-        | PaymentFileSubmittedToBank (id, _) -> sprintf "Payment file %A -> Optimized payment file submitted to bank" id
-
-let runSimulation () : PaymentState * PaymentEvent list =
-
-    let CustomerId = Guid.NewGuid()
-    // Create a sample payment file in PAIN.001 format.
+let processPaymentFile content =
+    let customerId = Guid.NewGuid()
     let paymentFile = {
         Id = Guid.NewGuid()
-        Content = "<PAIN.001>...</PAIN.001>"
-        CustomerId = CustomerId
+        Content = content
+        CustomerId = customerId
         ReceivedAt = DateTime.UtcNow
     }
-    // Create a sample payment file in PAIN.001 format.
     let paymentFileOptimized = {
         Id = Guid.NewGuid()
-        Content = "<PAIN.001>...</PAIN.001>"
-        CustomerId = CustomerId
+        Content = content + " (Optimized)"
+        CustomerId = customerId
         ReceivedAt = DateTime.UtcNow
     }
 
@@ -97,10 +72,11 @@ let runSimulation () : PaymentState * PaymentEvent list =
         PaymentFileValidated (paymentFile.Id, true, DateTime.UtcNow.AddSeconds(1.0))
         BankChannelAssigned (paymentFile.Id, SWIFT, DateTime.UtcNow.AddSeconds(2.0))
         FraudCheckCompleted (paymentFile.Id, Passed, DateTime.UtcNow.AddSeconds(3.0))
-        PaymentOptimized (paymentFile.Id, { Optimized = true; Details = "Payment optimized successfully." }, DateTime.UtcNow.AddSeconds(19.0))
-        OptimizedPaymentFileCreated (paymentFile.Id, paymentFileOptimized, DateTime.UtcNow.AddSeconds(19.5))
-        PaymentFileSubmittedToBank (paymentFileOptimized.Id, DateTime.UtcNow.AddSeconds(25.0))
+        PaymentOptimized (paymentFile.Id, { Optimized = true; Details = "Payment optimized successfully." }, DateTime.UtcNow.AddSeconds(4.0))
+        OptimizedPaymentFileCreated (paymentFile.Id, paymentFileOptimized, DateTime.UtcNow.AddSeconds(5.0))
+        PaymentFileSubmittedToBank (paymentFileOptimized.Id, DateTime.UtcNow.AddSeconds(6.0))
     ]
+
     let finalState =
         events
         |> List.fold (fun state evt ->
@@ -115,9 +91,7 @@ let runSimulation () : PaymentState * PaymentEvent list =
         ) initialPaymentState
     finalState, events
 
-// -----------------------------------------------------
 // Model, Messages, Init, and Update
-// -----------------------------------------------------
 
 type Model = {
     PaymentSim: PaymentState option
@@ -125,80 +99,44 @@ type Model = {
 }
 
 type Msg =
-    | RunPaymentSimulation
+    | UploadPaymentFile of string
 
 let init () =
     { PaymentSim = None; PaymentEvents = [] }, Cmd.none
 
 let update msg model =
     match msg with
-    | RunPaymentSimulation ->
-        let finalState, events = runSimulation ()
+    | UploadPaymentFile content ->
+        let finalState, events = processPaymentFile content
         { model with PaymentSim = Some finalState; PaymentEvents = events }, Cmd.none
 
-// -----------------------------------------------------
-// View: Payment Simulation UI
-// -----------------------------------------------------
+// View: UI
 
 let view (model: Model) (dispatch: Msg -> unit) =
-    Html.section [
-        prop.className "h-screen w-screen"
-        prop.style [
-            style.backgroundColor "#001F3F" // Dark blue background
-            style.backgroundSize "cover"
-            // style.backgroundImageUrl "https://unsplash.it/1200/900?random"
-            style.backgroundPosition "no-repeat center center fixed"
+    Html.div [
+        Html.h1 [ prop.text "Upload a Payment File" ]
+        Html.input [
+            prop.type' "file"
+            prop.onChange (fun (e: Browser.Types.Event) ->
+                let input = e.target :?> Browser.Types.HTMLInputElement
+                let files = input.files
+                if not (isNull files) && files.length > 0 then
+                    let file = files.item(0) // Use .item(0) instead of indexing
+                    if not (isNull file) then
+                        let reader = Browser.Dom.FileReader.Create()
+                        reader.onload <- fun (_: Browser.Types.Event) ->
+                            let content = reader.result |> string
+                            dispatch (UploadPaymentFile content)
+                        reader.readAsText(file)
+            )
         ]
-        prop.children [
-            Html.a [
-                prop.href "https://safe-stack.github.io/"
-                prop.className "absolute block ml-12 h-12 w-12 bg-teal-300 hover:cursor-pointer hover:bg-teal-400"
-                prop.children [ Html.img [ prop.src "/favicon.png"; prop.alt "Logo" ] ]
-            ]
-            Html.div [
-                prop.className "flex flex-col items-center justify-center h-full gap-6"
-                prop.children [
-                    Html.h1 [
-                        prop.className "text-center text-6xl font-bold text-white mb-3 rounded-md p-4"
-                        prop.children [
-                            Html.text "Payment File Tracker"
-                            Html.br []
-                            Html.text "Event Sourced"
-                        ]              ]
-                    Html.button [
-                        prop.className "bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded"
-                        prop.text "Run Payment Simulation"
-                        prop.onClick (fun _ -> dispatch RunPaymentSimulation)
-                    ]
-                    Html.div [
-                        prop.className "w-full lg:w-full lg:max-w-4xl mt-4"
-                        prop.children [
-                            Html.h2 [
-                                prop.className "text-white"
-                                prop.text "Event Timeline"
-                            ]
-                            Html.div [
-                                prop.className "flex flex-col text-white"
-                                prop.children (
-                                    model.PaymentEvents
-                                    |> List.map (fun event ->
-                                        Html.div [
-                                            prop.className "flex items-center mb-4"
-                                            prop.children [
-                                                Html.span [
-                                                    prop.className "w-4 h-4 bg-gray-400 rounded-full mr-4"
-                                                ]
-                                                Html.span [
-                                                    prop.text (sprintf "%s: %s" ((getEventTimestamp event).ToString("dd MMM yyyy HH:mm:ss")) (getEventDescription event))
-                                                ]
-                                            ]
-                                        ]
-                                    )
-                                )
-                            ]
-                        ]
-                    ]
-                ]
-            ]
+
+        Html.h2 [ prop.text "Event Timeline" ]
+        Html.ul [
+            model.PaymentEvents
+            |> List.map (fun event ->
+                Html.li [ prop.text (sprintf "%A" event) ]
+            )
+            |> prop.children
         ]
     ]
