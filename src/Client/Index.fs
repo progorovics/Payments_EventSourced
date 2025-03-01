@@ -272,51 +272,59 @@ let update msg model =
         init ()
 
 // View: UI
-
 let view (model: Model) (dispatch: Msg -> unit) =
     Html.div [
-        Html.h1 [ prop.text "Upload a Payment File" ]
-        Html.input [
-            prop.type' "file"
-            prop.onChange (fun (e: Browser.Types.Event) ->
-                let input = e.target :?> Browser.Types.HTMLInputElement
-                let files = input.files
+        prop.className "max-w-lg mx-auto p-6 bg-white shadow-lg rounded-lg"
+        prop.children [
+            Html.h1 [
+                prop.className "text-2xl font-bold text-gray-800 mb-4"
+                prop.text "Upload a Payment File"
+            ]
 
-                //reset the model
-                dispatch Reset
+            Html.input [
+                prop.className "w-full border border-gray-300 rounded-lg p-2 mb-4"
+                prop.type' "file"
+                prop.onChange (fun (e: Browser.Types.Event) ->
+                    let input = e.target :?> Browser.Types.HTMLInputElement
+                    let files = input.files
 
-                if not (isNull files) && files.length > 0 then
-                    let file = files.item (0) // Use .item(0) instead of indexing
+                    dispatch Reset |> ignore  // Explicitly ignore the result
 
-                    if not (isNull file) then
-                        let allowedTypes = [ "text/plain"; "application/json"; "text/xml" ]
+                    if not (isNull files) && files.length > 0 then
+                        let file = files.item(0)
 
-                        if List.contains file.``type`` allowedTypes then
-                            let reader = Browser.Dom.FileReader.Create()
+                        if not (isNull file) then
+                            let allowedTypes = [ "text/plain"; "application/json"; "text/xml" ]
 
-                            reader.onload <-
-                                fun (_: Browser.Types.Event) ->
+                            if List.contains file.``type`` allowedTypes then
+                                let reader = Browser.Dom.FileReader.Create()
+                                reader.onload <- fun _ ->
                                     let content = reader.result |> string
-                                    dispatch (UploadPaymentFile content)
+                                    dispatch (UploadPaymentFile content) |> ignore  // Explicitly ignore
+                                reader.readAsText file
+                            else
+                                Browser.Dom.window.alert ($"Unsupported file type {file.``type``}. Please upload a plain text, JSON, or XML file.") |> ignore  // Explicitly ignore
+                )
+            ]
 
-                            reader.readAsText (file)
-                        else
-                            //print the file type that causes the error
-                            Browser.Dom.window.alert ("Unsupported file type " + file.``type`` + ". Please upload a plain text, JSON, or XML file."))
-        ]
+            Html.h2 [
+                prop.className "text-xl font-semibold text-gray-700 mt-6 mb-2"
+                prop.text "Event Timeline"
+            ]
 
-        Html.h2 [ prop.text "Event Timeline" ]
-        Html.ul [
-            model.PaymentEvents
-            |> List.map (fun event ->
-
-                Html.li [
-                    prop.text (
-                        (getEventTimestamp event).ToString("yyyy-MM-dd HH:mm:ss")
-                        + ": "
-                        + getEventDescription event
+            Html.ul [
+                prop.className "bg-gray-100 p-4 rounded-lg"
+                prop.children (
+                    model.PaymentEvents
+                    |> List.map (fun event ->
+                        Html.li [
+                            prop.className "py-2 border-b border-gray-300 text-gray-700"
+                            prop.text (
+                                (getEventTimestamp event).ToString("yyyy-MM-dd HH:mm:ss") + ": " + getEventDescription event
+                            )
+                        ]
                     )
-                ])
-            |> prop.children
+                )
+            ]
         ]
     ]
