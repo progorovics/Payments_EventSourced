@@ -202,13 +202,13 @@ let getEventTimestamp (event: PaymentEvent) =
 
 let getEventDescription (event: PaymentEvent) =
     match event with
-    | PaymentFileReceived _ -> "Payment file -> imported"
-    | PaymentFileValidated(_, isValid) -> sprintf "Payment file -> validated: %b" isValid
-    | BankChannelAssigned(_, channel) -> sprintf "Payment file -> bank channel assigned: %A" channel
-    | FraudCheckCompleted(_, result) -> sprintf "Payment file -> Fraud check completed: %A" result
-    | PaymentOptimized(_, result) -> sprintf "Payment file -> optimized: %s" result.Details
-    | OptimizedPaymentFileCreated _ -> "Payment file -> Optimized payment file created"
-    | PaymentFileSubmittedToBank _ -> "Payment file -> Optimized payment file submitted to bank"
+    | PaymentFileReceived (metaData, _) ->  "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + "Payment file imported"
+    | PaymentFileValidated(metaData, isValid) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file validated: %b" isValid
+    | BankChannelAssigned(metaData, channel) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file bank channel assigned: %A" channel
+    | FraudCheckCompleted(metaData, result) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file fraud check completed: %A" result
+    | PaymentOptimized(metaData, result) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + sprintf "Payment file optimized: %s" result.Details
+    | OptimizedPaymentFileCreated (metaData, newFile) -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + "Payment file optimized payment file created: " + newFile.Id.ToString()
+    | PaymentFileSubmittedToBank metaData -> "CorrelationId: " + metaData.CorrelationId.Value.ToString() + " ==> " + "Payment file optimized payment file submitted to bank"
 
 // Model, Messages, Init, and Update
 
@@ -271,7 +271,7 @@ let view (model: Model) (dispatch: Msg -> unit) =
                 Html.li [
                     prop.text (
                         (getEventTimestamp event).ToString("yyyy-MM-dd HH:mm:ss")
-                        + " - "
+                        + ": "
                         + getEventDescription event
                     )
                 ])
