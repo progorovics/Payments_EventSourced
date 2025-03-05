@@ -5,292 +5,285 @@ open System.Collections.Generic
 open Saturn
 open Giraffe
 open Microsoft.AspNetCore.Http
-
-
-/// Represents a payment file.
-type PaymentFile = {
-    Id: Guid
-    StorageLink: string
-    ReceivedAt: DateTime
-    Actor: string
-    Source: string
-}
-
-/// Available bank channels.
-type BankChannel =
-    | SWIFT
-    | EBICS
-
-/// Fraud check result.
-type FraudCheckResult =
-    | Passed
-    | Failed of string
-
-/// Optimization result.
-type OptimizationResult = {
-    Optimized: bool
-    Details: string
-}
-
-/// Metadata for a payment file event.
-type PaymentFileEventContext = {
-    EventId: Guid
-    CreatedAt: DateTime
-    PaymentFileId: Guid
-    Actor: string
-    Source: string
-    CorrelationId: Guid option
-}
-
-/// Payment events representing workflow steps.
-type PaymentEvent =
-    | PaymentFileValidated of PaymentFileEventContext * bool
-    | BankChannelAssigned of PaymentFileEventContext * BankChannel
-    | FraudCheckCompleted of PaymentFileEventContext * FraudCheckResult
-    | PaymentOptimized of PaymentFileEventContext * OptimizationResult
-    | OptimizedPaymentFileCreated of PaymentFileEventContext * PaymentFile
-    | PaymentFileSubmittedToBank of PaymentFileEventContext
+open Microsoft.AspNetCore.Builder
+open Microsoft.Extensions.DependencyInjection
+open Microsoft.OpenApi.Models
+open Swashbuckle.AspNetCore.SwaggerGen
+open Shared
 
 module EventStore =
     open System.Collections.Concurrent
 
-    let private store = ConcurrentBag<PaymentEvent>()
-    let private eventIndex = Dictionary<Guid, List<PaymentEvent>>()
-    let private storeLock = obj()
+    let private store = ConcurrentBag<PaymentFileEvent>()
+    let private eventIndex = ConcurrentDictionary<Guid, ConcurrentBag<PaymentFileEvent>>()
 
-    let storeEvent (event: PaymentEvent) =
-        lock storeLock (fun () ->
-            store.Add(event)
-            let context =
-                match event with
-                | PaymentFileValidated (context, _) -> context
-                | BankChannelAssigned (context, _) -> context
-                | FraudCheckCompleted (context, _) -> context
-                | PaymentOptimized (context, _) -> context
-                | OptimizedPaymentFileCreated (context, _) -> context
-                | PaymentFileSubmittedToBank context -> context
+    let storeEvent (event: PaymentFileEvent) =
+        store.Add(event)
 
-            let correlationId = context.CorrelationId |> Option.defaultValue context.PaymentFileId
-            if eventIndex.ContainsKey(correlationId) then
-                eventIndex.[correlationId].Add(event)
-            else
-                eventIndex.[correlationId] <- List<PaymentEvent>([event])
-            // Logging the stored event for debugging/tracing purposes.
-            printfn "Stored event: %A" event
-        )
+        let context =
+            match event with
+            | PaymentFileValidated(context, _) -> context
+            | BankChannelAssigned(context, _) -> context
+            | FraudCheckCompleted(context, _) -> context
+            | PaymentOptimized(context, _) -> context
+            | OptimizedPaymentFileCreated(context, _) -> context
+            | PaymentFileSubmittedToBank context -> context
+
+        let correlationId =
+            context.CorrelationId |> Option.defaultValue context.PaymentFileId
+
+        eventIndex.AddOrUpdate(
+            correlationId,
+            (fun _ -> ConcurrentBag<PaymentFileEvent>([ event ])),
+            (fun _ events -> events.Add(event); events)
+        ) |> ignore
         event
 
-    /// Retrieves all stored events.
-    let getEvents () : PaymentEvent list =
-        store |> List.ofSeq
+    let getEvents () : IEnumerable<PaymentFileEvent> = store :> IEnumerable<PaymentFileEvent>
 
-    /// Checks if events exist for a given correlation ID.
-    let eventsExistForCorrelationId (correlationId: Guid) : bool =
-        eventIndex.ContainsKey(correlationId)
-
-    /// Retrieves events for a given correlation ID.
-    let getEventsByCorrelationId (correlationId: Guid) : PaymentEvent list =
-        if eventIndex.ContainsKey(correlationId) then
-            eventIndex.[correlationId] |> List.ofSeq
-        else
-            []
-
-/// Module to create event metadata.
-module EventContext =
-    /// Creates a new event metadata record.
-    /// If no correlationId is provided, it defaults to the paymentFileId.
-    let create (paymentFileId: Guid) (actor: string) (source: string) (correlationId: Guid option) =
-        {
-            EventId = Guid.NewGuid()
-            CreatedAt = DateTime.UtcNow
-            PaymentFileId = paymentFileId
-            Actor = actor
-            Source = source
-            CorrelationId = correlationId
+    // Fetches events from the event store by correlation ID.
+    // Returns a list of PaymentFileEvent associated with the given correlation ID.
+    let getEventsByCorrelationId (correlationId: Guid) : Async<PaymentFileEvent list> =
+        async {
+            return eventIndex.TryGetValue(correlationId)
+                   |> function
+                       | true, events -> List.ofSeq events
+                       | _ -> []
         }
 
-// Command handlers for processing payment file workflow steps.
 
-open EventContext
-open EventStore
 
-let validatePaymentFile paymentFileId actor source isValid =
-    let metadata = create paymentFileId actor source (Some paymentFileId)
-    PaymentFileValidated(metadata, isValid)
-    |> storeEvent
-
-let assignBankChannel paymentFileId actor source channel =
-    let metadata = create paymentFileId actor source (Some paymentFileId)
-    BankChannelAssigned(metadata, channel)
-    |> storeEvent
-
-let completeFraudCheck paymentFileId actor source result =
-    let metadata = create paymentFileId actor source (Some paymentFileId)
-    FraudCheckCompleted(metadata, result)
-    |> storeEvent
-
-let optimizePaymentFile paymentFileId actor source optimized details =
-    let metadata = create paymentFileId actor source (Some paymentFileId)
-    PaymentOptimized(metadata, { Optimized = optimized; Details = details })
-    |> storeEvent
-
-let createOptimizedPaymentFile originalPaymentFileId (newPaymentFile: PaymentFile) actor source =
-    let metadata = create newPaymentFile.Id actor source (Some originalPaymentFileId)
-    OptimizedPaymentFileCreated(metadata, newPaymentFile)
-    |> storeEvent
-
-let submitPaymentFileToBank paymentFileId actor source =
-    let metadata = create paymentFileId actor source (Some paymentFileId)
-    PaymentFileSubmittedToBank(metadata)
-    |> storeEvent
-
-/// DTOs for incoming JSON requests.
-module Dtos =
-    open System
-
-    type ValidatePaymentDto = {
-        PaymentFileId: Guid
-        Actor: string
-        Source: string
-        IsValid: bool
-    }
-
-    type AssignBankChannelDto = {
-        PaymentFileId: Guid
-        Actor: string
-        Source: string
-        BankChannel: string // Expected values: "SWIFT" or "EBICS"
-    }
-
-    type FraudCheckDto = {
-        PaymentFileId: Guid
-        Actor: string
-        Source: string
-        Passed: bool
-        Error: string option
-    }
-
-    type OptimizePaymentDto = {
-        PaymentFileId: Guid
-        Actor: string
-        Source: string
-        Optimized: bool
-        Details: string
-    }
-
-    type CreateOptimizedPaymentDto = {
-        OriginalPaymentFileId: Guid
-        NewPaymentFileId: Guid
-        StorageLink: string
-        ReceivedAt: DateTime
-        Actor: string
-        Source: string
-    }
-
-    type SubmitPaymentDto = {
-        PaymentFileId: Guid
-        Actor: string
-        Source: string
-    }
-
-/// API Controllers for handling HTTP requests.
-module PaymentController =
-    open Dtos
-
-    let parseBankChannel (channel: string) =
-        match channel.ToUpperInvariant() with
-        | "SWIFT" -> SWIFT
-        | "EBICS" -> EBICS
-        | _ -> failwith "Invalid bank channel"
-
-    let validatePaymentHandler (next: HttpFunc) (ctx: HttpContext) =
-        task {
-            let! dto = ctx.BindJsonAsync<ValidatePaymentDto>()
-            let event = validatePaymentFile dto.PaymentFileId dto.Actor dto.Source dto.IsValid
-            return! json event next ctx
+    // Fetches a list of distinct correlation IDs from the event store.
+    // Correlation IDs are extracted from various types of payment file events.
+    let getCorrelationIds () =
+        async {
+            // Fetch correlation IDs from the event store
+            let correlationIds = getEvents()
+                                |> Seq.toList
+                                |> List.choose (fun event ->
+                                    match event with
+                                    | PaymentFileValidated(metadata, _) -> metadata.CorrelationId
+                                    | BankChannelAssigned(metadata, _) -> metadata.CorrelationId
+                                    | FraudCheckCompleted(metadata, _) -> metadata.CorrelationId
+                                    | PaymentOptimized(metadata, _) -> metadata.CorrelationId
+                                    | OptimizedPaymentFileCreated(metadata, _) -> metadata.CorrelationId
+                                    | PaymentFileSubmittedToBank metadata -> metadata.CorrelationId
+                                    | _ -> None)
+                                |> List.distinct
+            return correlationIds
         }
 
-    let assignBankChannelHandler (next: HttpFunc) (ctx: HttpContext) =
-        task {
-            let! dto = ctx.BindJsonAsync<AssignBankChannelDto>()
-            let channel = parseBankChannel dto.BankChannel
-            let event = assignBankChannel dto.PaymentFileId dto.Actor dto.Source channel
-            return! json event next ctx
+
+
+    // Validates a payment file and stores the validation event in the event store.
+    // The function creates a `PaymentFileValidated` event with the provided DTO and stores it.
+    // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
+    // The function returns an async unit.
+    let validatePayment (dto: ValidatePaymentFileDto) =
+        async {
+            let event =
+                storeEvent (
+                    PaymentFileValidated(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        },
+                        dto.IsValid
+                    )
+                )
+            return ()
         }
 
-    let fraudCheckHandler (next: HttpFunc) (ctx: HttpContext) =
-        task {
-            let! dto = ctx.BindJsonAsync<FraudCheckDto>()
+    // Assigns a bank channel to a payment file.
+    // Stores a `BankChannelAssigned` event in the event store.
+    // The bank channel is determined based on the `BankChannel` property of the provided DTO.
+    let assignBankChannel (dto: AssignBankChannelDto) =
+        async {
+            let event =
+                storeEvent (
+                    BankChannelAssigned(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        },
+                        if dto.BankChannel = "SWIFT" then BankChannel.SWIFT else BankChannel.EBICS
+                    )
+                )
+            return ()
+        }
+
+    // Completes a fraud check for a payment file and stores the result in the event store.
+    // The function creates a `FraudCheckCompleted` event with the provided DTO and stores it.
+    // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
+    // The function returns an async unit.
+    let completeFraudCheck dto =
+        async {
             let result =
-                if dto.Passed then Passed
-                else Failed (defaultArg dto.Error "Fraud check failed")
-            let event = completeFraudCheck dto.PaymentFileId dto.Actor dto.Source result
-            return! json event next ctx
-        }
-
-    let optimizePaymentHandler (next: HttpFunc) (ctx: HttpContext) =
-        task {
-            let! dto = ctx.BindJsonAsync<OptimizePaymentDto>()
-            let event = optimizePaymentFile dto.PaymentFileId dto.Actor dto.Source dto.Optimized dto.Details
-            return! json event next ctx
-        }
-
-    let createOptimizedPaymentHandler (next: HttpFunc) (ctx: HttpContext) =
-        task {
-            let! dto = ctx.BindJsonAsync<CreateOptimizedPaymentDto>()
-            let newPaymentFile = { PaymentFile.Id = dto.NewPaymentFileId; StorageLink = dto.StorageLink; ReceivedAt = dto.ReceivedAt; Actor = dto.Actor; Source = dto.Source }
-            let event = createOptimizedPaymentFile dto.OriginalPaymentFileId newPaymentFile dto.Actor dto.Source
-            return! json event next ctx
-        }
-
-    let submitPaymentHandler (next: HttpFunc) (ctx: HttpContext) =
-        task {
-            let! dto = ctx.BindJsonAsync<SubmitPaymentDto>()
-            let event = submitPaymentFileToBank dto.PaymentFileId dto.Actor dto.Source
-            return! json event next ctx
-        }
-
-    // Endpoint to retrieve events for a given correlation id.
-    let getEventsByCorrelationHandler (correlationId: Guid) (next: HttpFunc) (ctx: HttpContext) =
-        task {
-            let filteredEvents =
-                if eventsExistForCorrelationId correlationId then
-                    getEventsByCorrelationId correlationId
+                if dto.Passed then
+                    Passed
                 else
-                    []
-            return! json filteredEvents next ctx
+                    Failed(defaultArg dto.Error "Fraud check failed")
+
+            let event =
+                storeEvent (
+                    FraudCheckCompleted(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        },
+                        result
+                    )
+                )
+            return ()
         }
 
-let paymentRouter =
-    // Combine controllers into a single router.
-    choose [
-        POST >=> route "/api/commands/validate" >=> PaymentController.validatePaymentHandler
-        POST >=> route "/api/commands/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
-        POST >=> route "/api/commands/complete-fraud-check" >=> PaymentController.fraudCheckHandler
-        POST >=> route "/api/commands/optimize" >=> PaymentController.optimizePaymentHandler
-        POST >=> route "/api/commands/create-optimized-payment-file" >=> PaymentController.createOptimizedPaymentHandler
-        POST >=> route "/api/commands/submit-to-bank" >=> PaymentController.submitPaymentHandler
-        GET  >=> routef "/api/events/correlation/%O" PaymentController.getEventsByCorrelationHandler
-    ]
+    let paymentFileApi =
+        {
+            getCorrelationIds = getCorrelationIds
+            getEventsByCorrelationId = getEventsByCorrelationId
+            validatePayment = validatePayment
+            assignBankChannel = assignBankChannel
+            completeFraudCheck = completeFraudCheck
+        }
 
-/// Defines the Saturn application with the necessary middleware and routing.
-let webApp =
-    // Define the web application router.
-    paymentRouter
+    // The PaymentController module handles HTTP requests related to payment file operations.
+    // It includes handlers for validating payment files, assigning bank channels, and completing fraud checks.
+    module PaymentController =
+        open Shared
 
-/// Defines the Saturn application with the necessary middleware and routing.
-let app = application {
-    // Use the defined router for handling HTTP requests.
-    use_router webApp
-    // Enable in-memory caching.
-    memory_cache
-    // Serve static files from the "public" directory.
-    use_static "public"
-    // Enable GZIP compression for responses.
-    use_gzip
-}
+        // Handles HTTP POST requests to validate a payment file.
+        // Binds the request body to a ValidatePaymentFileDto and stores a PaymentFileValidated event.
+        let validatePaymentHandler (next: HttpFunc) (ctx: HttpContext) = task {
+            let! (dto: Shared.ValidatePaymentFileDto) = ctx.BindJsonAsync<Shared.ValidatePaymentFileDto>()
 
-[<EntryPoint>]
-let main _ =
-    run app
-    0
+            let event =
+                storeEvent (
+                    PaymentFileValidated(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        },
+                        dto.IsValid
+                    )
+                )
+            return! json event next ctx
+        }
+
+        // Handles HTTP POST requests to assign a bank channel to a payment file.
+        // Binds the request body to an AssignBankChannelDto and stores a BankChannelAssigned event.
+        let assignBankChannelHandler (next: HttpFunc) (ctx: HttpContext) = task {
+            let! dto = ctx.BindJsonAsync<AssignBankChannelDto>()
+
+            let event =
+                storeEvent (
+                    BankChannelAssigned(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        },
+                        if dto.BankChannel = "SWIFT" then SWIFT else EBICS
+                    )
+                )
+            return! json event next ctx
+        }
+
+        // Handles HTTP POST requests to complete a fraud check for a payment file.
+        // Binds the request body to a CompleteFraudCheckDto and stores a FraudCheckCompleted event.
+        let fraudCheckHandler (next: HttpFunc) (ctx: HttpContext) = task {
+            let! dto = ctx.BindJsonAsync<CompleteFraudCheckDto>()
+
+            let result =
+                if dto.Passed then
+                    Passed
+                else
+                    Failed(defaultArg dto.Error "Fraud check failed")
+
+            let event =
+                storeEvent (
+                    FraudCheckCompleted(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        },
+                        result
+                    )
+                )
+            return! json event next ctx
+        }
+
+    // Defines the routes for the Payment File API.
+    // - GET "/" returns a welcome message.
+    // - POST "/api/commands/validate" validates a payment file.
+    // - POST "/api/commands/assign-bank-channel" assigns a bank channel to a payment file.
+    // - POST "/api/commands/complete-fraud-check" completes a fraud check for a payment file.
+    let paymentRouter =
+        choose [
+            GET >=> route "/" >=> text "Welcome to the Payment File API"
+            POST >=> route "/api/commands/validate" >=> PaymentController.validatePaymentHandler
+            POST >=> route "/api/commands/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
+            POST >=> route "/api/commands/complete-fraud-check" >=> PaymentController.fraudCheckHandler
+        ]
+
+    // Swagger configuration
+    let configureSwagger (swaggerGenOptions: SwaggerGenOptions) =
+        let info = OpenApiInfo()
+        info.Title <- "Payment API"
+        info.Version <- "v1"
+        swaggerGenOptions.SwaggerDoc("v1", info) |> ignore
+
+    // Defines the main application configuration.
+    // - Sets up the router for handling HTTP requests.
+    // - Configures static file serving and gzip compression.
+    // - Registers services including Swagger and the PaymentFileApi.
+    // - Configures middleware for Swagger.
+    let app = application {
+        use_router paymentRouter
+        use_static "public"
+        use_gzip
+
+        // Register Swagger in the DI container
+        service_config (fun services ->
+            // services.AddSwaggerGen(configureSwagger) |> ignore
+
+            // Register the PaymentFileApi service
+            services.AddSingleton<IPaymentFileApi>(paymentFileApi) |> ignore
+
+            services) // Return the services instance here
+
+        // Configure middleware for Swagger
+        // app_config (fun appBuilder ->
+        //     appBuilder.UseSwagger() |> ignore
+        //     appBuilder.UseSwaggerUI(fun c ->
+        //         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Payment API v1")
+        //         c.RoutePrefix <- "swagger") |> ignore
+        //     appBuilder) // Return the appBuilder instance here
+    }
+
+    [<EntryPoint>]
+    let main _ =
+        run app
+        0

@@ -3,7 +3,7 @@ module Index
 open Elmish
 open Feliz
 open System
-
+open Fable.Remoting.Client
 
 // Payment Simulation Domain Types
 
@@ -253,12 +253,16 @@ let getEventDescription (event: PaymentEvent) =
 type Model = {
     PaymentSim: PaymentState option
     PaymentEvents: PaymentEvent list
+    CorrelationIds: Guid list
+    SelectedCorrelationId: Guid option
 }
 
 let init () =
     {
         PaymentSim = None
         PaymentEvents = []
+        CorrelationIds = []
+        SelectedCorrelationId = None
     },
     Cmd.none
 
@@ -266,15 +270,15 @@ type Msg =
     | UploadPaymentFile of string
     | StartProcessing of PaymentFile
     | Reset
+    | FetchCorrelationIds
+    | SetCorrelationIds of Guid list
+    | SelectCorrelationId of Guid
+    | FetchEvents of Guid
+    | SetEvents of PaymentEvent list
 
-
-/// Reads the content of a file from the given file link.
-/// Throws an exception if the file does not exist.
-// let readFileFromLink (fileLink: string) : string =
-//     if File.Exists(fileLink) then
-//         File.ReadAllText(fileLink)
-//     else
-//         failwithf "File not found: %s" fileLink
+let api = Remoting.createApi()
+            |> Remoting.withRouteBuilder Route.builder
+            |> Remoting.buildProxy<IPaymentApi>
 
 let update msg model =
     match msg with
@@ -302,6 +306,18 @@ let update msg model =
         Cmd.none
     | Reset ->
         init ()
+    | FetchCorrelationIds ->
+        let cmd = Cmd.OfAsync.perform api.getCorrelationIds () SetCorrelationIds
+        model, cmd
+    | SetCorrelationIds ids ->
+        { model with CorrelationIds = ids }, Cmd.none
+    | SelectCorrelationId id ->
+        { model with SelectedCorrelationId = Some id }, Cmd.OfMsg (FetchEvents id)
+    | FetchEvents id ->
+        let cmd = Cmd.OfAsync.perform (api.getEventsByCorrelationId id) () SetEvents
+        model, cmd
+    | SetEvents events ->
+        { model with PaymentEvents = events }, Cmd.none
 
 // View: UI
 let view (model: Model) (dispatch: Msg -> unit) =
@@ -336,6 +352,31 @@ let view (model: Model) (dispatch: Msg -> unit) =
                                 reader.readAsText file
                             else
                                 Browser.Dom.window.alert ($"Unsupported file type {file.``type``}. Please upload a plain text, JSON, or XML file.") |> ignore  // Explicitly ignore
+                )
+            ]
+
+            Html.button [
+                prop.className "bg-blue-500 text-white px-4 py-2 rounded"
+                prop.text "Fetch Correlation IDs"
+                prop.onClick (fun _ -> dispatch FetchCorrelationIds)
+            ]
+
+            Html.h2 [
+                prop.className "text-xl font-semibold text-gray-700 mt-6 mb-2"
+                prop.text "Correlation IDs"
+            ]
+
+            Html.ul [
+                prop.className "bg-gray-100 p-4 rounded-lg"
+                prop.children (
+                    model.CorrelationIds
+                    |> List.map (fun id ->
+                        Html.li [
+                            prop.className "py-2 border-b border-gray-300 text-gray-700"
+                            prop.text id.ToString()
+                            prop.onClick (fun _ -> dispatch (SelectCorrelationId id))
+                        ]
+                    )
                 )
             ]
 
