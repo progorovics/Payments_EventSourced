@@ -4,12 +4,12 @@ open Elmish
 open Feliz
 open System
 
+
 // Payment Simulation Domain Types
 
 type PaymentFile = {
     Id: Guid
-    Content: string
-    CustomerId: Guid
+    Link: string
     ReceivedAt: DateTime
 }
 
@@ -62,35 +62,44 @@ type PaymentEvent =
     | OptimizedPaymentFileCreated of PaymentEventMetadata * PaymentFile
     | PaymentFileSubmittedToBank of PaymentEventMetadata
 
-let processPaymentFile content =
-    let customerId = Guid.NewGuid()
+let moveFileToFolder content =
+    // Simulate moving the file to a folder and returning the new link
+    "/uploads/" + Guid.NewGuid().ToString()
+
+let receiveFile content =
+
+    let link = moveFileToFolder content
 
     let paymentFile = {
         Id = Guid.NewGuid()
-        Content = content
-        CustomerId = customerId
+        Link = link
         ReceivedAt = DateTime.UtcNow
     }
 
+    PaymentFileReceived(
+        {
+            EventId = Guid.NewGuid()
+            CreatedAt = DateTime.UtcNow
+            PaymentFileId = paymentFile.Id
+            Actor = "System"
+            Source = "WebApp"
+            CorrelationId = None
+        },
+        paymentFile
+    )
+
+let processPaymentFile paymentFile: PaymentState * PaymentEvent list =
+
+    let optimisationOutputFolder = "/optimized"
+
     let paymentFileOptimized = {
         Id = Guid.NewGuid()
-        Content = content + " (Optimized)"
-        CustomerId = customerId
+        Link = optimisationOutputFolder + "/" + paymentFile.Id.ToString()
         ReceivedAt = DateTime.UtcNow
     }
 
     let events = [
-        PaymentFileReceived(
-            {
-                EventId = Guid.NewGuid()
-                CreatedAt = DateTime.UtcNow
-                PaymentFileId = paymentFile.Id
-                Actor = "PublicAPI"
-                Source = "API"
-                CorrelationId = Some paymentFile.Id
-            },
-            paymentFile
-        )
+
         PaymentFileValidated(
             {
                 EventId = Guid.NewGuid()
@@ -255,13 +264,36 @@ let init () =
 
 type Msg =
     | UploadPaymentFile of string
+    | StartProcessing of PaymentFile
     | Reset
+
+
+/// Reads the content of a file from the given file link.
+/// Throws an exception if the file does not exist.
+// let readFileFromLink (fileLink: string) : string =
+//     if File.Exists(fileLink) then
+//         File.ReadAllText(fileLink)
+//     else
+//         failwithf "File not found: %s" fileLink
 
 let update msg model =
     match msg with
     | UploadPaymentFile content ->
-        let finalState, events = processPaymentFile content
 
+        //move the file to a folder
+        let link = "/uploads/" + Guid.NewGuid().ToString()
+
+        let event = receiveFile content
+        let finalState = { initialPaymentState with PaymentFile = Some (match event with | PaymentFileReceived(_, file) -> file | _ -> failwith "Unexpected event") }
+        {
+            model with
+                PaymentSim = Some finalState
+                PaymentEvents = [event]
+        },
+        Cmd.none
+    | StartProcessing paymentFile ->
+
+        let finalState, events = processPaymentFile paymentFile
         {
             model with
                 PaymentSim = Some finalState

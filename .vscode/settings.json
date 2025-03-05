@@ -26,5 +26,9 @@
         "**/obj": true,
         "**/output": true,
         "**/deploy": true,
+    },
+    "FSharp.inlayHints.typeAnnotations": false,
+    "[fsharp]": {
+        "editor.inlayHints.enabled": "off"
     }
 }
