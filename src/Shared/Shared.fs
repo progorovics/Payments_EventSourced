@@ -19,6 +19,8 @@ type ValidatePaymentFileDto = {
     IsValid: bool
 }
 
+type GetCorrelationIdsDto = unit
+
 type AssignBankChannelDto = {
     PaymentFileId: Guid
     Actor: string
@@ -112,3 +114,4 @@ type IPaymentFileApi =
         createOptimizedPaymentFile: CreateOptimizedPaymentFileDto -> Async<unit>
         submitPaymentFile: SubmitPaymentFileDto -> Async<unit>
     }
+

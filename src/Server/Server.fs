@@ -263,10 +263,19 @@ module EventStore =
     // It includes handlers for validating payment files, assigning bank channels, and completing fraud checks.
     module PaymentController =
 
+        let getCorrelationIdsHandler (next: HttpFunc) (ctx: HttpContext) = task {
+            let! (dto: GetCorrelationIdsDto) = ctx.BindJsonAsync<GetCorrelationIdsDto>()
+
+            //create fake correlation ids
+            let correlationIds = [ Guid.NewGuid(); Guid.NewGuid(); Guid.NewGuid() ]
+
+            return! json correlationIds next ctx
+        }
+
         // Handles HTTP POST requests to validate a payment file.
         // Binds the request body to a ValidatePaymentFileDto and stores a PaymentFileValidated event.
         let validatePaymentHandler (next: HttpFunc) (ctx: HttpContext) = task {
-            let! (dto: ValidatePaymentFileDto) = ctx.BindJsonAsync<Shared.ValidatePaymentFileDto>()
+            let! (dto: ValidatePaymentFileDto) = ctx.BindJsonAsync<ValidatePaymentFileDto>()
 
             let event =
                 storeEvent (
@@ -343,9 +352,10 @@ module EventStore =
     let paymentRouter =
         choose [
             GET >=> route "/" >=> text "Welcome to the Payment File API"
-            POST >=> route "/api/commands/validate" >=> PaymentController.validatePaymentHandler
-            POST >=> route "/api/commands/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
-            POST >=> route "/api/commands/complete-fraud-check" >=> PaymentController.completeFraudCheckHandler
+            GET >=> route "/api/IPaymentFileApi/getCorrelationIds" >=> PaymentController.getCorrelationIdsHandler
+            POST >=> route "/api/IPaymentFileApi/validate" >=> PaymentController.validatePaymentHandler
+            POST >=> route "/api/IPaymentFileApi/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
+            POST >=> route "/api/IPaymentFileApi/complete-fraud-check" >=> PaymentController.completeFraudCheckHandler
         ]
 
     // Swagger configuration

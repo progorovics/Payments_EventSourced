@@ -6,8 +6,7 @@ open System
 open Fable.Remoting.Client
 open Shared
 
-// Payment Simulation Domain Types
-
+// Payment File Simulation Domain Types
 
 let initialPaymentState: PaymentState = {
     PaymentFile = None
@@ -225,8 +224,11 @@ type Msg =
     | FetchEvents of Guid
     | SetEvents of PaymentFileEvent list
 
+let routeBuilder typeName methodName =
+    sprintf "/api/%s/%s" typeName methodName
+
 let api = Remoting.createApi()
-            |> Remoting.withRouteBuilder (fun typeName methodName -> sprintf "/api/%s/%s" typeName methodName)
+            |> Remoting.withRouteBuilder routeBuilder
             |> Remoting.buildProxy<IPaymentFileApi>
 
 let update msg model =
