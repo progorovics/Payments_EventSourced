@@ -4,34 +4,10 @@ open Elmish
 open Feliz
 open System
 open Fable.Remoting.Client
+open Shared
 
 // Payment Simulation Domain Types
 
-type PaymentFile = {
-    Id: Guid
-    Link: string
-    ReceivedAt: DateTime
-}
-
-type BankChannel =
-    | SWIFT
-    | EBICS
-
-type FraudCheckResult =
-    | Passed
-    | Failed of string
-
-type OptimizationResult = { Optimized: bool; Details: string }
-
-type PaymentState = {
-    PaymentFile: PaymentFile option
-    IsValid: bool option
-    BankChannel: BankChannel option
-    FraudResult: FraudCheckResult option
-    OptimizationResult: OptimizationResult option
-    OptimizedPaymentFile: PaymentFile option
-    OptimizedPaymentFileSubmittedAt: DateTime option
-}
 
 let initialPaymentState: PaymentState = {
     PaymentFile = None
@@ -44,36 +20,21 @@ let initialPaymentState: PaymentState = {
 }
 
 // Define common metadata for all payment events
-type PaymentEventMetadata = {
-    EventId: Guid
-    CreatedAt: DateTime
-    PaymentFileId: Guid
-    Actor: string
-    Source: string
-    CorrelationId: Guid option
-}
 
-type PaymentEvent =
-    | PaymentFileReceived of PaymentEventMetadata * PaymentFile
-    | PaymentFileValidated of PaymentEventMetadata * bool
-    | BankChannelAssigned of PaymentEventMetadata * BankChannel
-    | FraudCheckCompleted of PaymentEventMetadata * FraudCheckResult
-    | PaymentOptimized of PaymentEventMetadata * OptimizationResult
-    | OptimizedPaymentFileCreated of PaymentEventMetadata * PaymentFile
-    | PaymentFileSubmittedToBank of PaymentEventMetadata
 
 let moveFileToFolder content =
     // Simulate moving the file to a folder and returning the new link
     "/uploads/" + Guid.NewGuid().ToString()
 
 let receiveFile content =
-
     let link = moveFileToFolder content
 
     let paymentFile = {
         Id = Guid.NewGuid()
-        Link = link
+        StorageLink = link
         ReceivedAt = DateTime.UtcNow
+        Actor = "System"
+        Source = "WebApp"
     }
 
     PaymentFileReceived(
@@ -88,18 +49,18 @@ let receiveFile content =
         paymentFile
     )
 
-let processPaymentFile paymentFile: PaymentState * PaymentEvent list =
-
+let processPaymentFile paymentFile: PaymentState * PaymentFileEvent list =
     let optimisationOutputFolder = "/optimized"
 
-    let paymentFileOptimized = {
+    let paymentFileOptimized: PaymentFile = {
         Id = Guid.NewGuid()
-        Link = optimisationOutputFolder + "/" + paymentFile.Id.ToString()
+        StorageLink = optimisationOutputFolder + "/" + paymentFile.Id.ToString()
         ReceivedAt = DateTime.UtcNow
+        Actor = "System"
+        Source = "WebApp"
     }
 
     let events = [
-
         PaymentFileValidated(
             {
                 EventId = Guid.NewGuid()
@@ -120,7 +81,7 @@ let processPaymentFile paymentFile: PaymentState * PaymentEvent list =
                 Source = "WebApp"
                 CorrelationId = Some paymentFile.Id
             },
-            SWIFT
+            BankChannel.SWIFT
         )
         FraudCheckCompleted(
             {
@@ -131,7 +92,7 @@ let processPaymentFile paymentFile: PaymentState * PaymentEvent list =
                 Source = "WebApp"
                 CorrelationId = Some paymentFile.Id
             },
-            Passed
+            FraudCheckResult.Passed
         )
         PaymentOptimized(
             {
@@ -177,29 +138,16 @@ let processPaymentFile paymentFile: PaymentState * PaymentEvent list =
                 match evt with
                 | PaymentFileReceived(p, file) -> { state with PaymentFile = Some file }
                 | PaymentFileValidated(_, isValid) -> { state with IsValid = Some isValid }
-                | BankChannelAssigned(_, channel) -> {
-                    state with
-                        BankChannel = Some channel
-                  }
+                | BankChannelAssigned(_, channel) -> { state with BankChannel = Some channel }
                 | FraudCheckCompleted(_, result) -> { state with FraudResult = Some result }
-                | PaymentOptimized(_, result) -> {
-                    state with
-                        OptimizationResult = Some result
-                  }
-                | OptimizedPaymentFileCreated(_, newFile) -> {
-                    state with
-                        OptimizedPaymentFile = Some newFile
-                  }
-                | PaymentFileSubmittedToBank metadata -> {
-                    state with
-                        OptimizedPaymentFileSubmittedAt = Some metadata.CreatedAt
-                  })
+                | PaymentOptimized(_, result) -> { state with OptimizationResult = Some result }
+                | OptimizedPaymentFileCreated(_, newFile) -> { state with OptimizedPaymentFile = Some newFile }
+                | PaymentFileSubmittedToBank metadata -> { state with OptimizedPaymentFileSubmittedAt = Some metadata.CreatedAt })
             initialPaymentState
 
     finalState, events
 
-
-let getEventTimestamp (event: PaymentEvent) =
+let getEventTimestamp (event: PaymentFileEvent) =
     match event with
     | PaymentFileReceived(metadata, _) -> metadata.CreatedAt
     | PaymentFileValidated(metadata, _) -> metadata.CreatedAt
@@ -209,7 +157,7 @@ let getEventTimestamp (event: PaymentEvent) =
     | OptimizedPaymentFileCreated(metadata, _) -> metadata.CreatedAt
     | PaymentFileSubmittedToBank metadata -> metadata.CreatedAt
 
-let getEventDescription (event: PaymentEvent) =
+let getEventDescription (event: PaymentFileEvent) =
     match event with
     | PaymentFileReceived(metaData, _) ->
         "CorrelationId: "
@@ -252,7 +200,7 @@ let getEventDescription (event: PaymentEvent) =
 
 type Model = {
     PaymentSim: PaymentState option
-    PaymentEvents: PaymentEvent list
+    PaymentFileEvents: PaymentFileEvent list
     CorrelationIds: Guid list
     SelectedCorrelationId: Guid option
 }
@@ -260,7 +208,7 @@ type Model = {
 let init () =
     {
         PaymentSim = None
-        PaymentEvents = []
+        PaymentFileEvents = []
         CorrelationIds = []
         SelectedCorrelationId = None
     },
@@ -274,17 +222,16 @@ type Msg =
     | SetCorrelationIds of Guid list
     | SelectCorrelationId of Guid
     | FetchEvents of Guid
-    | SetEvents of PaymentEvent list
+    | SetEvents of PaymentFileEvent list
 
 let api = Remoting.createApi()
             |> Remoting.withRouteBuilder Route.builder
-            |> Remoting.buildProxy<IPaymentApi>
+            |> Remoting.buildProxy<IPaymentFileApi>
 
 let update msg model =
     match msg with
     | UploadPaymentFile content ->
-
-        //move the file to a folder
+        // Move the file to a folder
         let link = "/uploads/" + Guid.NewGuid().ToString()
 
         let event = receiveFile content
@@ -292,16 +239,15 @@ let update msg model =
         {
             model with
                 PaymentSim = Some finalState
-                PaymentEvents = [event]
+                PaymentFileEvents = [event]
         },
         Cmd.none
     | StartProcessing paymentFile ->
-
         let finalState, events = processPaymentFile paymentFile
         {
             model with
                 PaymentSim = Some finalState
-                PaymentEvents = events
+                PaymentFileEvents = events
         },
         Cmd.none
     | Reset ->
@@ -312,12 +258,12 @@ let update msg model =
     | SetCorrelationIds ids ->
         { model with CorrelationIds = ids }, Cmd.none
     | SelectCorrelationId id ->
-        { model with SelectedCorrelationId = Some id }, Cmd.OfMsg (FetchEvents id)
+        { model with SelectedCorrelationId = Some id }, Cmd.ofMsg (FetchEvents id)
     | FetchEvents id ->
-        let cmd = Cmd.OfAsync.perform (api.getEventsByCorrelationId id) () SetEvents
+        let cmd = Cmd.OfAsync.perform (fun () -> api.getEventsByCorrelationId id) () SetEvents
         model, cmd
-    | SetEvents events ->
-        { model with PaymentEvents = events }, Cmd.none
+    | SetEvents (events: PaymentFileEvent list) ->
+        { model with PaymentFileEvents = events }, Cmd.none
 
 // View: UI
 let view (model: Model) (dispatch: Msg -> unit) =
@@ -373,7 +319,7 @@ let view (model: Model) (dispatch: Msg -> unit) =
                     |> List.map (fun id ->
                         Html.li [
                             prop.className "py-2 border-b border-gray-300 text-gray-700"
-                            prop.text id.ToString()
+                            prop.text (id.ToString())
                             prop.onClick (fun _ -> dispatch (SelectCorrelationId id))
                         ]
                     )
@@ -388,7 +334,7 @@ let view (model: Model) (dispatch: Msg -> unit) =
             Html.ul [
                 prop.className "bg-gray-100 p-4 rounded-lg"
                 prop.children (
-                    model.PaymentEvents
+                    model.PaymentFileEvents
                     |> List.map (fun event ->
                         Html.li [
                             prop.className "py-2 border-b border-gray-300 text-gray-700"

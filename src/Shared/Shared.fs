@@ -68,6 +68,16 @@ type FraudCheckResult =
 /// Optimization result.
 type OptimizationResult = { Optimized: bool; Details: string }
 
+type PaymentState = {
+    PaymentFile: PaymentFile option
+    IsValid: bool option
+    BankChannel: BankChannel option
+    FraudResult: FraudCheckResult option
+    OptimizationResult: OptimizationResult option
+    OptimizedPaymentFile: PaymentFile option
+    OptimizedPaymentFileSubmittedAt: DateTime option
+}
+
 /// Metadata for a payment file event.
 type PaymentFileEventContext = {
     EventId: Guid
@@ -80,6 +90,7 @@ type PaymentFileEventContext = {
 
 /// Payment events representing workflow steps.
 type PaymentFileEvent =
+    | PaymentFileReceived of PaymentFileEventContext * PaymentFile
     | PaymentFileValidated of PaymentFileEventContext * bool
     | BankChannelAssigned of PaymentFileEventContext * BankChannel
     | FraudCheckCompleted of PaymentFileEventContext * FraudCheckResult

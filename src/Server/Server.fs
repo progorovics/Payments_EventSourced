@@ -22,6 +22,7 @@ module EventStore =
 
         let context =
             match event with
+            | PaymentFileReceived(context, _) -> context
             | PaymentFileValidated(context, _) -> context
             | BankChannelAssigned(context, _) -> context
             | FraudCheckCompleted(context, _) -> context
@@ -101,7 +102,7 @@ module EventStore =
     // Assigns a bank channel to a payment file.
     // Stores a `BankChannelAssigned` event in the event store.
     // The bank channel is determined based on the `BankChannel` property of the provided DTO.
-    let assignBankChannel (dto: AssignBankChannelDto) =
+    let assignBankChannel (dto : AssignBankChannelDto) =
         async {
             let event =
                 storeEvent (
