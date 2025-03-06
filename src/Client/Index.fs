@@ -13,7 +13,7 @@ let initialPaymentState: PaymentState = {
     PaymentFile = None
     IsValid = None
     BankChannel = None
-    FraudResult = None
+    FraudCheckResult = None
     OptimizationResult = None
     OptimizedPaymentFile = None
     OptimizedPaymentFileSubmittedAt = None
@@ -94,7 +94,7 @@ let processPaymentFile paymentFile: PaymentState * PaymentFileEvent list =
             },
             FraudCheckResult.Passed
         )
-        PaymentOptimized(
+        PaymentFileOptimized(
             {
                 EventId = Guid.NewGuid()
                 CreatedAt = DateTime.UtcNow
@@ -134,15 +134,16 @@ let processPaymentFile paymentFile: PaymentState * PaymentFileEvent list =
     let finalState =
         events
         |> List.fold
-            (fun state evt ->
-                match evt with
-                | PaymentFileReceived(p, file) -> { state with PaymentFile = Some file }
+            (fun (state: PaymentState) event ->
+                match event with
                 | PaymentFileValidated(_, isValid) -> { state with IsValid = Some isValid }
                 | BankChannelAssigned(_, channel) -> { state with BankChannel = Some channel }
-                | FraudCheckCompleted(_, result) -> { state with FraudResult = Some result }
-                | PaymentOptimized(_, result) -> { state with OptimizationResult = Some result }
+                | FraudCheckCompleted(_, result) -> { state with FraudCheckResult = Some result }
+                | PaymentFileOptimized(_, result) -> { state with OptimizationResult = Some result }
                 | OptimizedPaymentFileCreated(_, newFile) -> { state with OptimizedPaymentFile = Some newFile }
-                | PaymentFileSubmittedToBank metadata -> { state with OptimizedPaymentFileSubmittedAt = Some metadata.CreatedAt })
+                | PaymentFileSubmittedToBank _ -> { state with OptimizedPaymentFileSubmittedAt = Some DateTime.UtcNow }
+                | _ -> state
+            )
             initialPaymentState
 
     finalState, events
@@ -153,7 +154,7 @@ let getEventTimestamp (event: PaymentFileEvent) =
     | PaymentFileValidated(metadata, _) -> metadata.CreatedAt
     | BankChannelAssigned(metadata, _) -> metadata.CreatedAt
     | FraudCheckCompleted(metadata, _) -> metadata.CreatedAt
-    | PaymentOptimized(metadata, _) -> metadata.CreatedAt
+    | PaymentFileOptimized(metadata, _) -> metadata.CreatedAt
     | OptimizedPaymentFileCreated(metadata, _) -> metadata.CreatedAt
     | PaymentFileSubmittedToBank metadata -> metadata.CreatedAt
 
@@ -179,7 +180,7 @@ let getEventDescription (event: PaymentFileEvent) =
         + metaData.CorrelationId.Value.ToString()
         + " ==> "
         + sprintf "Payment file fraud check completed: %A" result
-    | PaymentOptimized(metaData, result) ->
+    | PaymentFileOptimized(metaData, result) ->
         "CorrelationId: "
         + metaData.CorrelationId.Value.ToString()
         + " ==> "
@@ -225,7 +226,7 @@ type Msg =
     | SetEvents of PaymentFileEvent list
 
 let api = Remoting.createApi()
-            |> Remoting.withRouteBuilder Route.builder
+            |> Remoting.withRouteBuilder (fun typeName methodName -> sprintf "/api/%s/%s" typeName methodName)
             |> Remoting.buildProxy<IPaymentFileApi>
 
 let update msg model =
