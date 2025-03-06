@@ -125,7 +125,7 @@ module EventStore =
     // The function creates a `FraudCheckCompleted` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let completeFraudCheck dto =
+    let completeFraudCheck (dto : CompleteFraudCheckDto) =
         async {
             let result =
                 if dto.Passed then
