@@ -162,12 +162,11 @@ module EventStore =
     // The PaymentController module handles HTTP requests related to payment file operations.
     // It includes handlers for validating payment files, assigning bank channels, and completing fraud checks.
     module PaymentController =
-        open Shared
 
         // Handles HTTP POST requests to validate a payment file.
         // Binds the request body to a ValidatePaymentFileDto and stores a PaymentFileValidated event.
         let validatePaymentHandler (next: HttpFunc) (ctx: HttpContext) = task {
-            let! (dto: Shared.ValidatePaymentFileDto) = ctx.BindJsonAsync<Shared.ValidatePaymentFileDto>()
+            let! (dto: ValidatePaymentFileDto) = ctx.BindJsonAsync<Shared.ValidatePaymentFileDto>()
 
             let event =
                 storeEvent (
@@ -210,7 +209,7 @@ module EventStore =
 
         // Handles HTTP POST requests to complete a fraud check for a payment file.
         // Binds the request body to a CompleteFraudCheckDto and stores a FraudCheckCompleted event.
-        let fraudCheckHandler (next: HttpFunc) (ctx: HttpContext) = task {
+        let completeFraudCheckHandler (next: HttpFunc) (ctx: HttpContext) = task {
             let! dto = ctx.BindJsonAsync<CompleteFraudCheckDto>()
 
             let result =
@@ -246,7 +245,7 @@ module EventStore =
             GET >=> route "/" >=> text "Welcome to the Payment File API"
             POST >=> route "/api/commands/validate" >=> PaymentController.validatePaymentHandler
             POST >=> route "/api/commands/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
-            POST >=> route "/api/commands/complete-fraud-check" >=> PaymentController.fraudCheckHandler
+            POST >=> route "/api/commands/complete-fraud-check" >=> PaymentController.completeFraudCheckHandler
         ]
 
     // Swagger configuration
