@@ -26,7 +26,7 @@ module EventStore =
             | PaymentFileValidated(context, _) -> context
             | BankChannelAssigned(context, _) -> context
             | FraudCheckCompleted(context, _) -> context
-            | PaymentOptimized(context, _) -> context
+            | PaymentFileOptimized(context, _) -> context
             | OptimizedPaymentFileCreated(context, _) -> context
             | PaymentFileSubmittedToBank context -> context
 
@@ -52,8 +52,6 @@ module EventStore =
                        | _ -> []
         }
 
-
-
     // Fetches a list of distinct correlation IDs from the event store.
     // Correlation IDs are extracted from various types of payment file events.
     let getCorrelationIds () =
@@ -66,7 +64,7 @@ module EventStore =
                                     | PaymentFileValidated(metadata, _) -> metadata.CorrelationId
                                     | BankChannelAssigned(metadata, _) -> metadata.CorrelationId
                                     | FraudCheckCompleted(metadata, _) -> metadata.CorrelationId
-                                    | PaymentOptimized(metadata, _) -> metadata.CorrelationId
+                                    | PaymentFileOptimized(metadata, _) -> metadata.CorrelationId
                                     | OptimizedPaymentFileCreated(metadata, _) -> metadata.CorrelationId
                                     | PaymentFileSubmittedToBank metadata -> metadata.CorrelationId
                                     | _ -> None)
@@ -74,13 +72,34 @@ module EventStore =
             return correlationIds
         }
 
-
+    // Receives a payment file and stores the received event in the event store.
+    // The function creates a `PaymentFileReceived` event with the provided DTO and stores it.
+    // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
+    // The function returns an async unit.
+    let receivePaymentFile (dto: ReceivePaymentFileDto) =
+        async {
+            let event =
+                storeEvent (
+                    PaymentFileReceived(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFile.Id
+                            Actor = dto.PaymentFile.Actor
+                            Source = dto.PaymentFile.Source
+                            CorrelationId = Some dto.PaymentFile.Id
+                        },
+                        dto.PaymentFile
+                    )
+                )
+            return ()
+        }
 
     // Validates a payment file and stores the validation event in the event store.
     // The function creates a `PaymentFileValidated` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let validatePayment (dto: ValidatePaymentFileDto) =
+    let validatePaymentFile (dto: ValidatePaymentFileDto) =
         async {
             let event =
                 storeEvent (
@@ -121,6 +140,30 @@ module EventStore =
             return ()
         }
 
+    // Optimizes a payment file and stores the optimization event in the event store.
+    // The function creates a `PaymentOptimized` event with the provided DTO and stores it.
+    // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
+    // The function returns an async unit.
+    let optimizePaymentFile (dto: OptimizePaymentFileDto) =
+        async {
+            let event =
+                let optimizationResult = { Optimized = dto.Optimized; Details = dto.Details }
+                storeEvent (
+                    PaymentFileOptimized(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        },
+                        optimizationResult
+                    )
+                )
+            return ()
+        }
+
     // Completes a fraud check for a payment file and stores the result in the event store.
     // The function creates a `FraudCheckCompleted` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
@@ -150,13 +193,70 @@ module EventStore =
             return ()
         }
 
+    // Creates an optimized payment file and stores the event in the event store.
+    // The function creates an `OptimizedPaymentFileCreated` event with the provided DTO and stores it.
+    // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
+    // The function returns an async unit.
+    let createOptimizedPaymentFile (dto: CreateOptimizedPaymentFileDto) =
+        async {
+            let event =
+                let newStorageLink = "Path/To"
+                let newPaymentFile = {
+                    Id = dto.NewPaymentFileId
+                    StorageLink = newStorageLink
+                    ReceivedAt = DateTime.UtcNow
+                    Actor = "System"
+                    Source = "OptimizationResult"
+                }
+                storeEvent (
+                    OptimizedPaymentFileCreated(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.NewPaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = Some dto.OriginalPaymentFileId
+                        },
+                        newPaymentFile
+                    )
+                )
+            return ()
+        }
+
+    // Submits a payment file to the bank and stores the event in the event store.
+    // The function creates a `PaymentFileSubmittedToBank` event with the provided DTO and stores it.
+    // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
+    // The function returns an async unit.
+    let submitPaymentFile (dto: SubmitPaymentFileDto) =
+        async {
+            let event =
+                storeEvent (
+                    PaymentFileSubmittedToBank(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFileId
+                            Actor = dto.Actor
+                            Source = dto.Source
+                            CorrelationId = None
+                        }
+                    )
+                )
+            return ()
+        }
+
     let paymentFileApi =
         {
             getCorrelationIds = getCorrelationIds
             getEventsByCorrelationId = getEventsByCorrelationId
-            validatePayment = validatePayment
+            receivePaymentFile = receivePaymentFile
+            validatePaymentFile = validatePaymentFile
             assignBankChannel = assignBankChannel
             completeFraudCheck = completeFraudCheck
+            optimizePaymentFile = optimizePaymentFile
+            createOptimizedPaymentFile = createOptimizedPaymentFile
+            submitPaymentFile = submitPaymentFile
         }
 
     // The PaymentController module handles HTTP requests related to payment file operations.
@@ -267,7 +367,7 @@ module EventStore =
 
         // Register Swagger in the DI container
         service_config (fun services ->
-            // services.AddSwaggerGen(configureSwagger) |> ignore
+//             services.AddSwaggerGen(configureSwagger) |> ignore
 
             // Register the PaymentFileApi service
             services.AddSingleton<IPaymentFileApi>(paymentFileApi) |> ignore
@@ -275,12 +375,12 @@ module EventStore =
             services) // Return the services instance here
 
         // Configure middleware for Swagger
-        // app_config (fun appBuilder ->
-        //     appBuilder.UseSwagger() |> ignore
-        //     appBuilder.UseSwaggerUI(fun c ->
-        //         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Payment API v1")
-        //         c.RoutePrefix <- "swagger") |> ignore
-        //     appBuilder) // Return the appBuilder instance here
+//         app_config (fun appBuilder ->
+//                 appBuilder.UseSwagger() |> ignore
+//                 appBuilder.UseSwaggerUI(fun c ->
+//                         c.SwaggerEndpoint("/swagger/v1/swagger.json", "Payment API v1")
+//                         c.RoutePrefix <- "swagger") |> ignore
+//                 appBuilder) // Return the appBuilder instance here
     }
 
     [<EntryPoint>]

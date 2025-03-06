@@ -1,6 +1,16 @@
 namespace Shared
 
 open System
+type PaymentFile = {
+    Id: Guid
+    StorageLink: string
+    ReceivedAt: DateTime
+    Actor: string
+    Source: string
+}
+type ReceivePaymentFileDto = {
+    PaymentFile: PaymentFile
+}
 
 type ValidatePaymentFileDto = {
     PaymentFileId: Guid
@@ -46,14 +56,6 @@ type SubmitPaymentFileDto = {
     Actor: string
     Source: string
 }
-/// Represents a payment file.
-type PaymentFile = {
-    Id: Guid
-    StorageLink: string
-    ReceivedAt: DateTime
-    Actor: string
-    Source: string
-}
 
 /// Available bank channels.
 type BankChannel =
@@ -72,7 +74,7 @@ type PaymentState = {
     PaymentFile: PaymentFile option
     IsValid: bool option
     BankChannel: BankChannel option
-    FraudResult: FraudCheckResult option
+    FraudCheckResult: FraudCheckResult option
     OptimizationResult: OptimizationResult option
     OptimizedPaymentFile: PaymentFile option
     OptimizedPaymentFileSubmittedAt: DateTime option
@@ -94,7 +96,7 @@ type PaymentFileEvent =
     | PaymentFileValidated of PaymentFileEventContext * bool
     | BankChannelAssigned of PaymentFileEventContext * BankChannel
     | FraudCheckCompleted of PaymentFileEventContext * FraudCheckResult
-    | PaymentOptimized of PaymentFileEventContext * OptimizationResult
+    | PaymentFileOptimized of PaymentFileEventContext * OptimizationResult
     | OptimizedPaymentFileCreated of PaymentFileEventContext * PaymentFile
     | PaymentFileSubmittedToBank of PaymentFileEventContext
 
@@ -102,7 +104,11 @@ type IPaymentFileApi =
     {
         getCorrelationIds: unit -> Async<Guid list>
         getEventsByCorrelationId: Guid -> Async<PaymentFileEvent list>
-        validatePayment: ValidatePaymentFileDto -> Async<unit>
+        receivePaymentFile: ReceivePaymentFileDto -> Async<unit>
+        validatePaymentFile: ValidatePaymentFileDto -> Async<unit>
         assignBankChannel: AssignBankChannelDto -> Async<unit>
         completeFraudCheck: CompleteFraudCheckDto -> Async<unit>
+        optimizePaymentFile: OptimizePaymentFileDto -> Async<unit>
+        createOptimizedPaymentFile: CreateOptimizedPaymentFileDto -> Async<unit>
+        submitPaymentFile: SubmitPaymentFileDto -> Async<unit>
     }
