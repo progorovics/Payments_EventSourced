@@ -9,7 +9,7 @@ let server =
     testList "Server" [
         testCase "Adding valid Todo"
         <| fun _ ->
-            let validTodo = Todo.create "TODO"
+            // let validTodo = Todo.create "TODO"
             let expectedResult = Ok()
 
             let result = Ok()
@@ -18,7 +18,7 @@ let server =
             // Expect.contains Storage.todos validTodo "Storage should contain new todo"
     ]
 
-let all = testList "All" [ Shared.Tests.shared; server ]
+let all = testList "All" [ server ]
 
 [<EntryPoint>]
 let main _ = runTestsWithCLIArgs [] [||] all

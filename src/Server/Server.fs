@@ -7,8 +7,8 @@ open Giraffe
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.DependencyInjection
-open Microsoft.OpenApi.Models
-open Swashbuckle.AspNetCore.SwaggerGen
+// open Microsoft.OpenApi.Models
+// open Swashbuckle.AspNetCore.SwaggerGen
 open Shared
 
 module EventStore =
@@ -349,11 +349,11 @@ module EventStore =
         ]
 
     // Swagger configuration
-    let configureSwagger (swaggerGenOptions: SwaggerGenOptions) =
-        let info = OpenApiInfo()
-        info.Title <- "Payment API"
-        info.Version <- "v1"
-        swaggerGenOptions.SwaggerDoc("v1", info) |> ignore
+    // let configureSwagger (swaggerGenOptions: SwaggerGenOptions) =
+    //     let info = OpenApiInfo()
+    //     info.Title <- "Payment API"
+    //     info.Version <- "v1"
+    //     swaggerGenOptions.SwaggerDoc("v1", info) |> ignore
 
     // Defines the main application configuration.
     // - Sets up the router for handling HTTP requests.
