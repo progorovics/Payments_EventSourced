@@ -7,6 +7,10 @@ open Giraffe
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Builder
 open Microsoft.Extensions.DependencyInjection
+open Fable.Remoting.Server
+open Fable.Remoting.Giraffe
+
+
 // open Microsoft.OpenApi.Models
 // open Swashbuckle.AspNetCore.SwaggerGen
 open Shared
@@ -368,16 +372,21 @@ module EventStore =
             return! json event next ctx
         }
 
+
+    let paymentFileRouter =
+        Remoting.createApi ()
+        |> Remoting.fromValue paymentFileApi
+
     // Defines the routes for the Payment File API.
-    let paymentRouter =
-        choose [
-            GET >=> route "/" >=> text "Welcome to the Payment File API"
-            GET >=> route "/api/IPaymentFileApi/getCorrelationIds" >=> PaymentController.getCorrelationIdsHandler
-            POST >=> route "/api/IPaymentFileApi/importPaymentFile" >=> PaymentController.importPaymentFileHandler
-            POST >=> route "/api/IPaymentFileApi/validate" >=> PaymentController.validatePaymentHandler
-            POST >=> route "/api/IPaymentFileApi/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
-            POST >=> route "/api/IPaymentFileApi/complete-fraud-check" >=> PaymentController.completeFraudCheckHandler
-        ]
+    // let paymentRouter =
+    //     choose [
+    //         GET >=> route "/" >=> text "Welcome to the Payment File API"
+    //         GET >=> route "/api/IPaymentFileApi/getCorrelationIds" >=> PaymentController.getCorrelationIdsHandler
+    //         POST >=> route "/api/IPaymentFileApi/importPaymentFile" >=> PaymentController.importPaymentFileHandler
+    //         POST >=> route "/api/IPaymentFileApi/validate" >=> PaymentController.validatePaymentHandler
+    //         POST >=> route "/api/IPaymentFileApi/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
+    //         POST >=> route "/api/IPaymentFileApi/complete-fraud-check" >=> PaymentController.completeFraudCheckHandler
+    //     ]
 
     // Swagger configuration
     // let configureSwagger (swaggerGenOptions: SwaggerGenOptions) =
@@ -392,7 +401,7 @@ module EventStore =
     // - Registers services including Swagger and the PaymentFileApi.
     // - Configures middleware for Swagger.
     let app = application {
-        use_router paymentRouter
+        use_router paymentFileRouter
         use_static "public"
         use_gzip
 

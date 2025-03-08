@@ -11,9 +11,6 @@ This simulation initially creates a payment file and processes it in different w
 
 At the end of the simulation the payment file status and events gets printed to the UI
 
-
-
-
 ## Install pre-requisites
 
 You'll need to install the following pre-requisites in order to build SAFE applications

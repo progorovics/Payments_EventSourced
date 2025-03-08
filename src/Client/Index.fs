@@ -51,12 +51,9 @@ type Msg =
     | FetchEvents of Guid
     | SetEvents of PaymentFileEvent list
 
-let routeBuilder typeName methodName =
-    sprintf "/api/%s/%s" typeName methodName
-
-let api = Remoting.createApi()
-            |> Remoting.withRouteBuilder routeBuilder
-            |> Remoting.buildProxy<IPaymentFileApi>
+let api =
+    Remoting.createApi()
+    |> Remoting.buildProxy<IPaymentFileApi>
 
 let update msg model =
     match msg with
