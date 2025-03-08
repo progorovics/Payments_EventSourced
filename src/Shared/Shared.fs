@@ -72,7 +72,7 @@ type FraudCheckResult =
 /// Optimization result.
 type OptimizationResult = { Optimized: bool; Details: string }
 
-type PaymentState = {
+type PaymentFileState = {
     PaymentFile: PaymentFile option
     IsValid: bool option
     BankChannel: BankChannel option

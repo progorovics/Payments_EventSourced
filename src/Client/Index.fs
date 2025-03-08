@@ -8,7 +8,7 @@ open Shared
 
 // Payment File Simulation Domain Types
 
-let initialPaymentState: PaymentState = {
+let initialPaymentFileState: PaymentFileState = {
     PaymentFile = None
     IsValid = None
     BankChannel = None
@@ -18,134 +18,9 @@ let initialPaymentState: PaymentState = {
     OptimizedPaymentFileSubmittedAt = None
 }
 
-// Define common metadata for all payment events
-
-
 let moveFileToFolder content =
     // Simulate moving the file to a folder and returning the new link
     "/uploads/" + Guid.NewGuid().ToString()
-
-let receiveFile content =
-    let link = moveFileToFolder content
-
-    let paymentFile = {
-        Id = Guid.NewGuid()
-        StorageLink = link
-        ReceivedAt = DateTime.UtcNow
-        Actor = "System"
-        Source = "WebApp"
-    }
-
-    PaymentFileReceived(
-        {
-            EventId = Guid.NewGuid()
-            CreatedAt = DateTime.UtcNow
-            PaymentFileId = paymentFile.Id
-            Actor = "System"
-            Source = "WebApp"
-            CorrelationId = None
-        },
-        paymentFile
-    )
-
-let processPaymentFile paymentFile: PaymentState * PaymentFileEvent list =
-    let optimisationOutputFolder = "/optimized"
-
-    let paymentFileOptimized: PaymentFile = {
-        Id = Guid.NewGuid()
-        StorageLink = optimisationOutputFolder + "/" + paymentFile.Id.ToString()
-        ReceivedAt = DateTime.UtcNow
-        Actor = "System"
-        Source = "WebApp"
-    }
-
-    let events = [
-        PaymentFileValidated(
-            {
-                EventId = Guid.NewGuid()
-                CreatedAt = DateTime.UtcNow
-                PaymentFileId = paymentFile.Id
-                Actor = "UserEsther"
-                Source = "UI"
-                CorrelationId = Some paymentFile.Id
-            },
-            true
-        )
-        BankChannelAssigned(
-            {
-                EventId = Guid.NewGuid()
-                CreatedAt = DateTime.UtcNow
-                PaymentFileId = paymentFile.Id
-                Actor = "System"
-                Source = "WebApp"
-                CorrelationId = Some paymentFile.Id
-            },
-            BankChannel.SWIFT
-        )
-        FraudCheckCompleted(
-            {
-                EventId = Guid.NewGuid()
-                CreatedAt = DateTime.UtcNow
-                PaymentFileId = paymentFile.Id
-                Actor = "System"
-                Source = "WebApp"
-                CorrelationId = Some paymentFile.Id
-            },
-            FraudCheckResult.Passed
-        )
-        PaymentFileOptimized(
-            {
-                EventId = Guid.NewGuid()
-                CreatedAt = DateTime.UtcNow
-                PaymentFileId = paymentFile.Id
-                Actor = "System"
-                Source = "WebApp"
-                CorrelationId = Some paymentFile.Id
-            },
-            {
-                Optimized = true
-                Details = "Payment file optimized successfully."
-            }
-        )
-        OptimizedPaymentFileCreated(
-            {
-                EventId = Guid.NewGuid()
-                CreatedAt = DateTime.UtcNow
-                PaymentFileId = paymentFileOptimized.Id
-                Actor = "System"
-                Source = "AutomationJob"
-                CorrelationId = Some paymentFile.Id
-            },
-            paymentFileOptimized
-        )
-        PaymentFileSubmittedToBank(
-            {
-                EventId = Guid.NewGuid()
-                CreatedAt = DateTime.UtcNow
-                PaymentFileId = paymentFileOptimized.Id
-                Actor = "System"
-                Source = "WebApp"
-                CorrelationId = Some paymentFile.Id
-            }
-        )
-    ]
-
-    let finalState =
-        events
-        |> List.fold
-            (fun (state: PaymentState) event ->
-                match event with
-                | PaymentFileValidated(_, isValid) -> { state with IsValid = Some isValid }
-                | BankChannelAssigned(_, channel) -> { state with BankChannel = Some channel }
-                | FraudCheckCompleted(_, result) -> { state with FraudCheckResult = Some result }
-                | PaymentFileOptimized(_, result) -> { state with OptimizationResult = Some result }
-                | OptimizedPaymentFileCreated(_, newFile) -> { state with OptimizedPaymentFile = Some newFile }
-                | PaymentFileSubmittedToBank _ -> { state with OptimizedPaymentFileSubmittedAt = Some DateTime.UtcNow }
-                | _ -> state
-            )
-            initialPaymentState
-
-    finalState, events
 
 let getEventTimestamp (event: PaymentFileEvent) =
     match event with
@@ -199,7 +74,7 @@ let getEventDescription (event: PaymentFileEvent) =
 // Model, Messages, Init, and Update
 
 type Model = {
-    PaymentSim: PaymentState option
+    UploadedPaymentFile: PaymentFile option
     PaymentFileEvents: PaymentFileEvent list
     CorrelationIds: Guid list
     SelectedCorrelationId: Guid option
@@ -207,7 +82,7 @@ type Model = {
 
 let init () =
     {
-        PaymentSim = None
+        UploadedPaymentFile = None
         PaymentFileEvents = []
         CorrelationIds = []
         SelectedCorrelationId = None
@@ -236,36 +111,29 @@ let update msg model =
     | UploadPaymentFile content ->
         // Move the file to a folder
         let link = "/uploads/" + Guid.NewGuid().ToString()
-
-        let event = receiveFile content
-        let finalState = { initialPaymentState with PaymentFile = Some (match event with | PaymentFileReceived(_, file) -> file | _ -> failwith "Unexpected event") }
-        {
-            model with
-                PaymentSim = Some finalState
-                PaymentFileEvents = [event]
-        },
-        Cmd.none
+        let paymentFile = {
+            Id = Guid.NewGuid()
+            StorageLink = link
+            ReceivedAt = DateTime.UtcNow
+            Actor = "Andreas Progorovics"
+            Source = "UI"
+        }
+        let model = { model with UploadedPaymentFile = Some paymentFile }
+        model, Cmd.none
     | StartProcessing paymentFile ->
-        let finalState, events = processPaymentFile paymentFile
-        {
-            model with
-                PaymentSim = Some finalState
-                PaymentFileEvents = events
-        },
-        Cmd.none
+        let model = { model with UploadedPaymentFile = Some paymentFile }
+        model, Cmd.none
     | Reset ->
         init ()
     | FetchCorrelationIds ->
-        let cmd = Cmd.OfAsync.perform api.getCorrelationIds () SetCorrelationIds
-        model, cmd
+        model, Cmd.OfAsync.perform api.getCorrelationIds () SetCorrelationIds
     | SetCorrelationIds ids ->
         { model with CorrelationIds = ids }, Cmd.none
     | SelectCorrelationId id ->
-        { model with SelectedCorrelationId = Some id }, Cmd.ofMsg (FetchEvents id)
+        { model with SelectedCorrelationId = Some id }, Cmd.none
     | FetchEvents id ->
-        let cmd = Cmd.OfAsync.perform (fun () -> api.getEventsByCorrelationId id) () SetEvents
-        model, cmd
-    | SetEvents (events: PaymentFileEvent list) ->
+        model, Cmd.OfAsync.perform api.getEventsByCorrelationId id SetEvents
+    | SetEvents events ->
         { model with PaymentFileEvents = events }, Cmd.none
 
 // View: UI

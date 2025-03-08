@@ -12,8 +12,6 @@
     <None Include="paket.references" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.OpenApi" Version="1.2.3" />
-    <PackageReference Include="Swashbuckle.AspNetCore" Version="7.3.1" />
   </ItemGroup>
   <Import Project=".paket\Paket.Restore.targets" />
   <Target Name="DotNetToolRestore" BeforeTargets="PaketRestore">
