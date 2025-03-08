@@ -44,7 +44,7 @@ module EventStore =
 
     // Fetches events from the event store by correlation ID.
     // Returns a list of PaymentFileEvent associated with the given correlation ID.
-    let getEventsByCorrelationId (correlationId: Guid) : Async<PaymentFileEvent list> =
+    let getEventsByCorrelationIdHandler (correlationId: Guid) : Async<PaymentFileEvent list> =
         async {
             return eventIndex.TryGetValue(correlationId)
                    |> function
@@ -54,19 +54,14 @@ module EventStore =
 
     // Fetches a list of distinct correlation IDs from the event store.
     // Correlation IDs are extracted from various types of payment file events.
-    let getCorrelationIds () =
+    let getCorrelationIdsHandler () =
         async {
             // Fetch correlation IDs from the event store
             let correlationIds = getEvents()
                                 |> Seq.toList
                                 |> List.choose (fun event ->
                                     match event with
-                                    | PaymentFileValidated(metadata, _) -> metadata.CorrelationId
-                                    | BankChannelAssigned(metadata, _) -> metadata.CorrelationId
-                                    | FraudCheckCompleted(metadata, _) -> metadata.CorrelationId
-                                    | PaymentFileOptimized(metadata, _) -> metadata.CorrelationId
-                                    | OptimizedPaymentFileCreated(metadata, _) -> metadata.CorrelationId
-                                    | PaymentFileSubmittedToBank metadata -> metadata.CorrelationId
+                                    | PaymentFileImported(metadata, _) -> metadata.CorrelationId
                                     | _ -> None)
                                 |> List.distinct
             return correlationIds
@@ -76,7 +71,7 @@ module EventStore =
     // The function creates a `PaymentFileImported` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let importPaymentFile (dto: ImportPaymentFileDto) =
+    let importPaymentFileHandler (dto: ImportPaymentFileDto) =
         async {
             let event =
                 storeEvent (
@@ -99,7 +94,7 @@ module EventStore =
     // The function creates a `PaymentFileValidated` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let validatePaymentFile (dto: ValidatePaymentFileDto) =
+    let validatePaymentFileHandler (dto: ValidatePaymentFileDto) =
         async {
             let event =
                 storeEvent (
@@ -121,7 +116,7 @@ module EventStore =
     // Assigns a bank channel to a payment file.
     // Stores a `BankChannelAssigned` event in the event store.
     // The bank channel is determined based on the `BankChannel` property of the provided DTO.
-    let assignBankChannel (dto : AssignBankChannelDto) =
+    let assignBankChannelHandler (dto : AssignBankChannelDto) =
         async {
             let event =
                 storeEvent (
@@ -144,7 +139,7 @@ module EventStore =
     // The function creates a `PaymentOptimized` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let optimizePaymentFile (dto: OptimizePaymentFileDto) =
+    let optimizePaymentFileHandler (dto: OptimizePaymentFileDto) =
         async {
             let event =
                 let optimizationResult = { Optimized = dto.Optimized; Details = dto.Details }
@@ -168,7 +163,7 @@ module EventStore =
     // The function creates a `FraudCheckCompleted` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let completeFraudCheck (dto : CompleteFraudCheckDto) =
+    let completeFraudCheckHandler (dto : CompleteFraudCheckDto) =
         async {
             let result =
                 if dto.Passed then
@@ -197,7 +192,7 @@ module EventStore =
     // The function creates an `OptimizedPaymentFileCreated` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let createOptimizedPaymentFile (dto: CreateOptimizedPaymentFileDto) =
+    let createOptimizedPaymentFileHandler (dto: CreateOptimizedPaymentFileDto) =
         async {
             let event =
                 let newStorageLink = "Path/To"
@@ -227,7 +222,7 @@ module EventStore =
     // The function creates a `PaymentFileSubmittedToBank` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let submitPaymentFile (dto: SubmitPaymentFileDto) =
+    let submitPaymentFileHandler (dto: SubmitPaymentFileDto) =
         async {
             let event =
                 storeEvent (
@@ -247,15 +242,15 @@ module EventStore =
 
     let paymentFileApi =
         {
-            getCorrelationIds = getCorrelationIds
-            getEventsByCorrelationId = getEventsByCorrelationId
-            importPaymentFile = importPaymentFile
-            validatePaymentFile = validatePaymentFile
-            assignBankChannel = assignBankChannel
-            completeFraudCheck = completeFraudCheck
-            optimizePaymentFile = optimizePaymentFile
-            createOptimizedPaymentFile = createOptimizedPaymentFile
-            submitPaymentFile = submitPaymentFile
+            getCorrelationIds = getCorrelationIdsHandler
+            getEventsByCorrelationId = getEventsByCorrelationIdHandler
+            importPaymentFile = importPaymentFileHandler
+            validatePaymentFile = validatePaymentFileHandler
+            assignBankChannel = assignBankChannelHandler
+            completeFraudCheck = completeFraudCheckHandler
+            optimizePaymentFile = optimizePaymentFileHandler
+            createOptimizedPaymentFile = createOptimizedPaymentFileHandler
+            submitPaymentFile = submitPaymentFileHandler
         }
 
     // The PaymentController module handles HTTP requests related to payment file operations.
@@ -265,10 +260,40 @@ module EventStore =
         let getCorrelationIdsHandler (next: HttpFunc) (ctx: HttpContext) = task {
             let! (dto: GetCorrelationIdsDto) = ctx.BindJsonAsync<GetCorrelationIdsDto>()
 
-            //create fake correlation ids
-            let correlationIds = [ Guid.NewGuid(); Guid.NewGuid(); Guid.NewGuid() ]
+            //read correlation ids from the event store
+
+            let! correlationIds = getCorrelationIdsHandler()
 
             return! json correlationIds next ctx
+        }
+
+        // Handles HTTP POST requests to import a payment file.
+        // Binds the request body to an ImportPaymentFileDto and stores a PaymentFileImported event.
+        let importPaymentFileHandler (next: HttpFunc) (ctx: HttpContext) = task {
+
+            // my client is sending the dto in this format
+            // let importDto : ImportPaymentFileDto = {
+            // PaymentFile = paymentFile
+            //}
+
+            // I am not sure how to bind the request body to ImportPaymentFileDto
+            let! dto = ctx.BindJsonAsync<ImportPaymentFileDto>()
+
+            let event =
+                storeEvent (
+                    PaymentFileImported(
+                        {
+                            EventId = Guid.NewGuid()
+                            CreatedAt = DateTime.UtcNow
+                            PaymentFileId = dto.PaymentFile.Id
+                            Actor = dto.PaymentFile.Actor
+                            Source = dto.PaymentFile.Source
+                            CorrelationId = Some dto.PaymentFile.Id
+                        },
+                        dto.PaymentFile
+                    )
+                )
+            return! json event next ctx
         }
 
         // Handles HTTP POST requests to validate a payment file.
@@ -344,14 +369,11 @@ module EventStore =
         }
 
     // Defines the routes for the Payment File API.
-    // - GET "/" returns a welcome message.
-    // - POST "/api/commands/validate" validates a payment file.
-    // - POST "/api/commands/assign-bank-channel" assigns a bank channel to a payment file.
-    // - POST "/api/commands/complete-fraud-check" completes a fraud check for a payment file.
     let paymentRouter =
         choose [
             GET >=> route "/" >=> text "Welcome to the Payment File API"
             GET >=> route "/api/IPaymentFileApi/getCorrelationIds" >=> PaymentController.getCorrelationIdsHandler
+            POST >=> route "/api/IPaymentFileApi/importPaymentFile" >=> PaymentController.importPaymentFileHandler
             POST >=> route "/api/IPaymentFileApi/validate" >=> PaymentController.validatePaymentHandler
             POST >=> route "/api/IPaymentFileApi/assign-bank-channel" >=> PaymentController.assignBankChannelHandler
             POST >=> route "/api/IPaymentFileApi/complete-fraud-check" >=> PaymentController.completeFraudCheckHandler

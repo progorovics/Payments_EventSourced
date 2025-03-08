@@ -72,8 +72,11 @@ let update msg model =
         let model = { model with UploadedPaymentFile = Some paymentFile }
         model, Cmd.none
     | StartProcessing paymentFile ->
-        let model = { model with UploadedPaymentFile = Some paymentFile }
-        model, Cmd.none
+        let importDto : ImportPaymentFileDto = {
+            PaymentFile = paymentFile
+        }
+        let cmd = Cmd.OfAsync.perform api.importPaymentFile importDto (fun _ -> Reset)
+        { model with UploadedPaymentFile = Some paymentFile }, cmd
     | Reset ->
         init ()
     | FetchCorrelationIds ->
