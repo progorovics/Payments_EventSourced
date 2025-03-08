@@ -4,11 +4,10 @@ open System
 type PaymentFile = {
     Id: Guid
     StorageLink: string
-    ReceivedAt: DateTime
     Actor: string
     Source: string
 }
-type ReceivePaymentFileDto = {
+type ImportPaymentFileDto = {
     PaymentFile: PaymentFile
 }
 
@@ -48,7 +47,6 @@ type CreateOptimizedPaymentFileDto = {
     OriginalPaymentFileId: Guid
     NewPaymentFileId: Guid
     StorageLink: string
-    ReceivedAt: DateTime
     Actor: string
     Source: string
 }
@@ -94,7 +92,7 @@ type PaymentFileEventContext = {
 
 /// Payment events representing workflow steps.
 type PaymentFileEvent =
-    | PaymentFileReceived of PaymentFileEventContext * PaymentFile
+    | PaymentFileImported of PaymentFileEventContext * PaymentFile
     | PaymentFileValidated of PaymentFileEventContext * bool
     | BankChannelAssigned of PaymentFileEventContext * BankChannel
     | FraudCheckCompleted of PaymentFileEventContext * FraudCheckResult
@@ -106,7 +104,7 @@ type IPaymentFileApi =
     {
         getCorrelationIds: unit -> Async<Guid list>
         getEventsByCorrelationId: Guid -> Async<PaymentFileEvent list>
-        receivePaymentFile: ReceivePaymentFileDto -> Async<unit>
+        importPaymentFile: ImportPaymentFileDto -> Async<unit>
         validatePaymentFile: ValidatePaymentFileDto -> Async<unit>
         assignBankChannel: AssignBankChannelDto -> Async<unit>
         completeFraudCheck: CompleteFraudCheckDto -> Async<unit>

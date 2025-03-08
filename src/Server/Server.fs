@@ -22,7 +22,7 @@ module EventStore =
 
         let context =
             match event with
-            | PaymentFileReceived(context, _) -> context
+            | PaymentFileImported(context, _) -> context
             | PaymentFileValidated(context, _) -> context
             | BankChannelAssigned(context, _) -> context
             | FraudCheckCompleted(context, _) -> context
@@ -72,15 +72,15 @@ module EventStore =
             return correlationIds
         }
 
-    // Receives a payment file and stores the received event in the event store.
-    // The function creates a `PaymentFileReceived` event with the provided DTO and stores it.
+    // Imports a payment file and stores the imported event in the event store.
+    // The function creates a `PaymentFileImported` event with the provided DTO and stores it.
     // The event includes metadata such as EventId, CreatedAt, PaymentFileId, Actor, Source, and CorrelationId.
     // The function returns an async unit.
-    let receivePaymentFile (dto: ReceivePaymentFileDto) =
+    let importPaymentFile (dto: ImportPaymentFileDto) =
         async {
             let event =
                 storeEvent (
-                    PaymentFileReceived(
+                    PaymentFileImported(
                         {
                             EventId = Guid.NewGuid()
                             CreatedAt = DateTime.UtcNow
@@ -204,7 +204,6 @@ module EventStore =
                 let newPaymentFile = {
                     Id = dto.NewPaymentFileId
                     StorageLink = newStorageLink
-                    ReceivedAt = DateTime.UtcNow
                     Actor = "System"
                     Source = "OptimizationResult"
                 }
@@ -250,7 +249,7 @@ module EventStore =
         {
             getCorrelationIds = getCorrelationIds
             getEventsByCorrelationId = getEventsByCorrelationId
-            receivePaymentFile = receivePaymentFile
+            importPaymentFile = importPaymentFile
             validatePaymentFile = validatePaymentFile
             assignBankChannel = assignBankChannel
             completeFraudCheck = completeFraudCheck
